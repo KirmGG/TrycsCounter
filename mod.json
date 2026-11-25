@@ -1,0 +1,482 @@
+{
+  "geode": "5.11.2",
+  "gd": {
+    "win": "2.2081",
+    "android": "2.2081",
+    "ios": "2.2081"
+  },
+  "version": "v0.1.0-alpha",
+  "id": "trycs.counter",
+  "name": "TrycsCounter",
+  "developer": "KirmGG",
+  "description": "Frame windows of every click, NaN GD style: rings, counter, ding, Deep Count, replays and graphs.",
+  "tags": [
+    "utility",
+    "interface"
+  ],
+  "resources": {
+    "files": [
+      "resources/proper-ding.mp3"
+    ],
+    "sprites": [
+      "resources/tc-button.png",
+      "resources/tc-menu-button.png"
+    ]
+  },
+  "settings": {
+    "section-counting": {
+      "type": "title",
+      "name": "Counting"
+    },
+    "physics-tps": {
+      "type": "int",
+      "default": 240,
+      "min": 60,
+      "max": 2400,
+      "name": "Physics TPS",
+      "description": "Geometry Dash physics tick rate. Stock GD is usually 240."
+    },
+    "window-fps": {
+      "type": "int",
+      "default": 240,
+      "min": 30,
+      "max": 1000,
+      "name": "Window FPS",
+      "description": "Unit used for displayed frame windows. Use 240 for native GD physics frames."
+    },
+    "precision": {
+      "type": "string",
+      "default": "Auto",
+      "one-of": [
+        "Auto",
+        "Frame",
+        "Half frame"
+      ],
+      "name": "Window precision",
+      "description": "Auto: Click Between Frames runs in steps of 'CBF precision', Click Between Steps in half frames, otherwise whole frames. Fractional results are shown as decimals (2.5, 3.27) and the counter uses ranges (1-2)."
+    },
+    "cbf-step": {
+      "type": "float",
+      "default": 0.01,
+      "min": 0.01,
+      "max": 1.0,
+      "name": "CBF precision (frames)",
+      "description": "Smallest shift used for Click Between Frames recordings, in physics frames. 0.01 is the finest; larger values need fewer trials."
+    },
+    "max-display-window": {
+      "type": "int",
+      "default": 16,
+      "min": 11,
+      "max": 240,
+      "name": "Frame window limit",
+      "description": "Both sides of a click are checked until the window reaches this many frames. Wider windows count as free: no marker, no ding, not counted. Default 16."
+    },
+    "lookahead-frames": {
+      "type": "int",
+      "default": 90,
+      "min": 10,
+      "max": 1200,
+      "name": "Survival lookahead (frames)",
+      "description": "A shifted input must survive until the next input and this many additional frames."
+    },
+    "count-speed": {
+      "type": "float",
+      "default": 10000.0,
+      "min": 1.0,
+      "max": 10000.0,
+      "name": "Counting speed (x)",
+      "description": "How many times faster the game runs while frame windows are counted. In practice the speed is limited by your CPU: the counting uses about 80 ms of every frame and the game keeps drawing about 12 frames a second."
+    },
+    "mute-during-count": {
+      "type": "bool",
+      "default": true,
+      "name": "Mute while counting",
+      "description": "Mute music and sound effects while frame windows are counted."
+    },
+    "auto-save-runs": {
+      "type": "bool",
+      "default": false,
+      "name": "Auto-save counted runs",
+      "description": "Save every finished count for its level right away. Off: save it yourself with TC > Save Run in the pause menu. Saved runs are listed under TC > Saved Runs, where they can be shown, replayed, renamed or deleted; the newest one shows its markers in your attempts."
+    },
+    "show-releases": {
+      "type": "bool",
+      "default": true,
+      "name": "Show release markers",
+      "description": "Also draw, count and ding release windows (important for ship, wave and robot control)."
+    },
+    "move-release-with-press": {
+      "type": "bool",
+      "default": true,
+      "name": "Move release with press",
+      "description": "A moved press takes its release along, so the whole tap moves and the hold keeps its length (like you would play it). Off: only the press moves and the hold gets shorter or longer, which makes wave and ship spam look much harder."
+    },
+    "section-accuracy": {
+      "type": "title",
+      "name": "Accuracy and speed"
+    },
+    "verify-edges": {
+      "type": "bool",
+      "default": true,
+      "name": "Check edges in Deep Count",
+      "description": "Deep Count first tries the last passing and the first failing shift of every shown click again, strictly (no 'Back on path'). If the outcome differs (random triggers, an approximate trial), the window is made strict and marked ?. Shifts the normal count already decided exactly (a death, or a survival without 'Back on path') are not tried again."
+    },
+    "free-flight": {
+      "type": "bool",
+      "default": true,
+      "name": "Free flight (ship, wave, swing)",
+      "description": "In ship, wave and swing you steer all the time: a moved click only has to keep you alive until your next click and a moment to react ('Reaction'), then you would fly on differently. Off: it must survive the full lookahead with all your other clicks unchanged, which measures your own click pattern (an easy corridor flown one way can show 2 frames)."
+    },
+    "free-flight-reaction": {
+      "type": "int",
+      "default": 6,
+      "min": 1,
+      "max": 60,
+      "name": "Free flight reaction (frames)",
+      "description": "How long after the next click a moved free-flight click must keep you alive (240 Hz frames). 6 frames = 25 ms."
+    },
+    "adapt-next-clicks": {
+      "type": "bool",
+      "default": true,
+      "name": "Adapt next clicks",
+      "description": "A moved click that dies only after the next click could be fixed by the player with that click, and on ship or wave with the clicks after it too: the next click is re-timed (same shift, opposite shift, then a few frames around its real timing), and if the run then dies after the click after it, that one is re-timed as well, up to 'Correction depth' clicks. The moved click counts if one of these chains survives. Off: all other clicks stay where they were (stricter, often too small windows)."
+    },
+    "adapt-depth": {
+      "type": "int",
+      "default": 3,
+      "min": 1,
+      "max": 6,
+      "name": "Correction depth (clicks)",
+      "description": "How many clicks after a moved click may be re-timed one after another to fix it (ship, wave and UFO often need 2-3). 1 = only the next click (the old behaviour). More is more exact for ship, but slower; one moved click uses at most 40 correction trials."
+    },
+    "path-tolerance": {
+      "type": "float",
+      "default": 0.5,
+      "min": 0.0,
+      "max": 4.0,
+      "name": "Back on path (units)",
+      "description": "A trial whose player is back within this distance of your attempt's path (same mode, gravity, size and held button, for 24 frames after every re-timed click) has fixed the mistake and survives at once. Ship paths never match bit for bit, so this makes ship windows more exact and every count faster. 0 = only an exact match counts. A block is 30 units."
+    },
+    "layout-mode": {
+      "type": "bool",
+      "default": true,
+      "name": "Layout mode while counting",
+      "description": "Like Eclipse's layout mode, only while counting: decoration is hidden and visual-only triggers (colours, pulse, alpha, shake, gradients, background changes) do not fire. Nothing is removed from the level; afterwards everything looks as before. If the replay check does not match, the count runs with the full level by itself."
+    },
+    "fast-visuals": {
+      "type": "bool",
+      "default": true,
+      "name": "Fast counting",
+      "description": "While trials run, the level's drawing work (object visibility) is skipped and a decided trial stops moving its players until the reset. If trials then stop matching the baseline replay, the count switches back to full drawing by itself."
+    },
+    "fast-search": {
+      "type": "bool",
+      "default": false,
+      "name": "Fast search (less exact)",
+      "description": "Off (recommended): every frame of both sides is tested outwards from the click until it dies, like other frame window counters; the window is the unbroken run of frames that pass. On: the shift doubles and the edge is bisected, about half the trials, but a frame that dies between two passing ones is skipped and the window comes out too wide."
+    },
+    "checkpoint-interval": {
+      "type": "int",
+      "default": 30,
+      "min": 10,
+      "max": 600,
+      "name": "Checkpoint interval (frames)",
+      "description": "Practice checkpoints placed during the baseline replay. Smaller values make each trial shorter (faster counting) but use more memory. Default 30."
+    },
+    "exact-checkpoints": {
+      "type": "bool",
+      "default": true,
+      "name": "Exact checkpoints",
+      "description": "A practice checkpoint brings back the whole physics state of the player and the used orbs and pads, like playing straight through. Practice attempts and counting then replay more often without errors. Turn off only if respawns behave oddly."
+    },
+    "lead-frames": {
+      "type": "int",
+      "default": 24,
+      "min": 1,
+      "max": 240,
+      "name": "Checkpoint lead (frames)",
+      "description": "Replay this many frames before the tested input so the game state settles."
+    },
+    "state-fixes": {
+      "type": "bool",
+      "default": true,
+      "name": "Replay corrections",
+      "description": "Like xdBot's Frame Fixes: when the counting replay drifts a little off your attempt (practice checkpoints, a bot that sets the player's position), the player is put back onto the recorded path and the same correction is used for every trial and the replay. Needed for attempts recorded in practice mode and for xdBot with Frame Fixes. Real differences (another mode, a click at another time) are never corrected."
+    },
+    "force-click-on-steps": {
+      "type": "bool",
+      "default": false,
+      "name": "Force click on steps",
+      "description": "Turns off Click Between Steps while the mod is active. Normally not needed: with Click Between Steps on, windows are measured in half frames."
+    },
+    "section-deep": {
+      "type": "title",
+      "name": "Deep Count"
+    },
+    "deep-samples": {
+      "type": "int",
+      "default": 5,
+      "min": 2,
+      "max": 9,
+      "name": "Deep Count: timings of the previous click",
+      "description": "Deep Count measures a click with the previous click at this many timings spread over the inner three quarters of its window (at the very edge the run only just survives and every click looks like 0.01). A ~ click shows the window it has most often, weighted towards the middle of the previous window where players usually click. More is more exact and slower."
+    },
+    "approach-inputs": {
+      "type": "int",
+      "default": 3,
+      "min": 0,
+      "max": 6,
+      "name": "Deep Count: easier approach (inputs)",
+      "description": "For hard clicks (at most a quarter of the display limit) Deep Count moves this many inputs before the click to the edges of their own windows (at most 3 frames), keeping every move that widens the click. If the click gets at least a frame wider, it is marked ^ and the replay note says how. 0 turns it off."
+    },
+    "island-frames": {
+      "type": "int",
+      "default": 3,
+      "min": 0,
+      "max": 12,
+      "name": "Deep Count: look past the edges (frames)",
+      "description": "Deep Count tries this many frames past each edge of a window: a click that works again beyond a gap gets '-' and a note like (0.01, 1.85) U (2.09, 2.44). 0 turns it off."
+    },
+    "deep-adapt-depth": {
+      "type": "int",
+      "default": 5,
+      "min": 1,
+      "max": 8,
+      "name": "Deep Count: correction depth (clicks)",
+      "description": "In Deep Count, how many clicks after a moved click may be re-timed one after another to fix it (normal count: 'Correction depth'). Deep Count measures every click again with these corrections first."
+    },
+    "deep-adapt-frames": {
+      "type": "int",
+      "default": 8,
+      "min": 2,
+      "max": 16,
+      "name": "Deep Count: correction reach (frames)",
+      "description": "In Deep Count, how far a following click may be re-timed to fix a moved click, in frames, for any size of the move (normal count: up to the move + 1 frame, at most 4). At most 160 correction trials per moved click."
+    },
+    "show-notes": {
+      "type": "bool",
+      "default": true,
+      "name": "Deep Count notes",
+      "description": "During the replay, explain clicks Deep Count found something about at the top right: the range of a ~ click, disconnected windows of a - click."
+    },
+    "note-seconds": {
+      "type": "float",
+      "default": 2.0,
+      "min": 0.5,
+      "max": 10.0,
+      "name": "Note fade (seconds)",
+      "description": "Deep Count notes start fading as soon as they appear and are gone after this many seconds."
+    },
+    "section-display": {
+      "type": "title",
+      "name": "Display"
+    },
+    "hud-side": {
+      "type": "string",
+      "default": "Left",
+      "one-of": [
+        "Left",
+        "Right"
+      ],
+      "name": "Counter side",
+      "description": "Where the list of buckets and counts goes. The progress / L* go to the same side, the Deep Count notes and the REC label to the other one."
+    },
+    "hud-in-attempts": {
+      "type": "bool",
+      "default": true,
+      "name": "Counter in attempts",
+      "description": "Show the counter (top left) and the progress / L* (bottom left) in your attempts whenever the level has counted results, not only during the replay and with Live Counter."
+    },
+    "show-title": {
+      "type": "bool",
+      "default": true,
+      "name": "TrycsCounter under the percentage",
+      "description": "Writes TrycsCounter half transparent under the level percentage while the counter is shown, like NaN GD's 'NaN Counter'."
+    },
+    "show-symbols": {
+      "type": "bool",
+      "default": true,
+      "name": "Symbols after windows",
+      "description": "~ depends on the previous click (after Deep Count the window it usually has), - disconnected window (Deep Count), ! swift / !! double swift / !!! triple swift, ^ an easier approach exists (Deep Count), + hit a limit, ? the counting replay had left your attempt or the edge check differed."
+    },
+    "swift-frames": {
+      "type": "int",
+      "default": 10,
+      "min": 1,
+      "max": 60,
+      "name": "Swift click gap (frames)",
+      "description": "A press this many frames or less after the previous press of the same button is a swift click (!). The next one in the chain is a double swift (!!), then triple (!!!). 10 frames = 42 ms."
+    },
+    "decimals-below": {
+      "type": "float",
+      "default": 6.0,
+      "min": 0.0,
+      "max": 100.0,
+      "name": "Two decimals below (frames)",
+      "description": "Precise windows (CBF / CBS) smaller than this are written with 'Digits of hard clicks', the others with 'Digits of easy clicks'. Only the text changes, the counting stays exact. 0: every click uses the easy digits."
+    },
+    "hard-decimals": {
+      "type": "int",
+      "default": 2,
+      "min": 0,
+      "max": 2,
+      "name": "Digits of hard clicks",
+      "description": "Decimals of precise windows below 'Two decimals below' (2: 6.47)."
+    },
+    "easy-decimals": {
+      "type": "int",
+      "default": 1,
+      "min": 0,
+      "max": 2,
+      "name": "Digits of easy clicks",
+      "description": "Decimals of precise windows from 'Two decimals below' on (1: 8.3). Set 2 to always write two decimals."
+    },
+    "show-ms": {
+      "type": "bool",
+      "default": false,
+      "name": "Show milliseconds",
+      "description": "Show the time available for the click below its frame count on the marker. The counter always shows the last click in ms and Hz."
+    },
+    "show-lstar": {
+      "type": "bool",
+      "default": true,
+      "name": "Show progress and L*",
+      "description": "Bottom left: level progress and L* (NaNDL raw precision, sigma per second, 24 hours) of the clicks passed so far."
+    },
+    "marker-scale": {
+      "type": "float",
+      "default": 1.0,
+      "min": 0.5,
+      "max": 2.0,
+      "name": "Marker size",
+      "description": "Size of the rings and their numbers."
+    },
+    "intro-seconds": {
+      "type": "float",
+      "default": 5.0,
+      "min": 0.0,
+      "max": 30.0,
+      "name": "Replay intro (seconds)",
+      "description": "Title card before a replay: level, counter, the buckets with their rates and times, the symbols and L*. Tap to skip. 0 turns it off."
+    },
+    "section-sound": {
+      "type": "title",
+      "name": "Sound"
+    },
+    "ding-enabled": {
+      "type": "bool",
+      "default": true,
+      "name": "Ding on clicks",
+      "description": "Play a ding when you reach a measured click. 8-frame windows play the normal sound, smaller windows are lower, wider ones higher."
+    },
+    "ding-volume": {
+      "type": "float",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 1.0,
+      "name": "Ding volume",
+      "description": "Volume of the click ding."
+    },
+    "ding-semitones-per-frame": {
+      "type": "float",
+      "default": 1.5,
+      "min": 0.1,
+      "max": 4.0,
+      "name": "Ding pitch step (semitones per frame)",
+      "description": "Every frame below 8 lowers the ding by this many semitones, every frame above raises it."
+    },
+    "sound": {
+      "type": "file",
+      "default": "",
+      "name": "Click sound",
+      "description": "Sound of the clicks (all of them, unless the two settings below pick their own). Empty: the built-in ding. The pitch still follows the window.",
+      "control": {
+        "dialog": "open",
+        "filters": [
+          {
+            "files": [
+              "*.mp3",
+              "*.ogg",
+              "*.wav"
+            ],
+            "description": "Sounds"
+          }
+        ]
+      }
+    },
+    "sound-hard-below": {
+      "type": "float",
+      "default": 4.0,
+      "min": 0.0,
+      "max": 16.0,
+      "name": "Hard click up to (frames)",
+      "description": "Clicks with a window of this many frames or less play \"Hard click sound\"."
+    },
+    "sound-hard": {
+      "type": "file",
+      "default": "",
+      "name": "Hard click sound",
+      "description": "Sound of hard clicks. Empty: the same as \"Click sound\".",
+      "control": {
+        "dialog": "open",
+        "filters": [
+          {
+            "files": [
+              "*.mp3",
+              "*.ogg",
+              "*.wav"
+            ],
+            "description": "Sounds"
+          }
+        ]
+      }
+    },
+    "sound-hardest-below": {
+      "type": "float",
+      "default": 1.0,
+      "min": 0.0,
+      "max": 16.0,
+      "name": "Hardest click up to (frames)",
+      "description": "Clicks with a window of this many frames or less play \"Hardest click sound\"."
+    },
+    "sound-hardest": {
+      "type": "file",
+      "default": "",
+      "name": "Hardest click sound",
+      "description": "Sound of the hardest clicks. Empty: the same as \"Hard click sound\".",
+      "control": {
+        "dialog": "open",
+        "filters": [
+          {
+            "files": [
+              "*.mp3",
+              "*.ogg",
+              "*.wav"
+            ],
+            "description": "Sounds"
+          }
+        ]
+      }
+    },
+    "section-live": {
+      "type": "title",
+      "name": "Live Counter"
+    },
+    "live-counter": {
+      "type": "bool",
+      "default": false,
+      "name": "Live Counter",
+      "description": "Measures every click while you play and shows its window as soon as it is decided. Experimental."
+    },
+    "live-mode": {
+      "type": "string",
+      "default": "Trajectory",
+      "one-of": [
+        "Trajectory",
+        "Exact"
+      ],
+      "name": "Live Counter mode",
+      "description": "Trajectory: copies of the player run in step with your attempt (blocks, spikes, slopes, orbs, pads, gravity portals), the window appears as soon as it is decided, no stutter, normal and practice mode. Clicks near mode portals or moving objects are not shown. Exact: replays the level from practice checkpoints, exact but the game freezes for a moment on every click."
+    }
+  }
+}

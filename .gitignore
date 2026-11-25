@@ -1,0 +1,6 @@
+build/
+.claude/
+*.obj.d
+dist/
+README_RU.md
+CHANGELOG_RU.md

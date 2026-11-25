@@ -1,0 +1,3 @@
+No third-party source files are included.
+The checkpoint tick restore follows the approach of Frame Window Counter by hyper-5 (MIT): https://github.com/hyper-5/frame-window-counter
+Target: Geometry Dash 2.2081 / Windows, Android, iOS / Geode 5.11.
