@@ -49,3 +49,16 @@ endif()
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 setup_geode_mod(${PROJECT_NAME})
+
+# iOS refuses to load a dylib without a code signature ("missing code signature"),
+# so sign it ad-hoc before Geode packages it into the .geode.
+if (IOS)
+    find_program(TC_CODESIGN codesign)
+    if (TC_CODESIGN)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${TC_CODESIGN} --force --sign - --identifier trycs.counter $<TARGET_FILE:${PROJECT_NAME}>
+            COMMENT "Ad-hoc signing the iOS dylib")
+    else()
+        message(WARNING "codesign not found: the iOS dylib will be unsigned and iOS will not load it")
+    endif()
+endif()
