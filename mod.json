@@ -5,7 +5,7 @@
     "android": "2.2081",
     "ios": "2.2081"
   },
-  "version": "v0.1.0-alpha",
+  "version": "v0.1.1-alpha",
   "id": "trycs.counter",
   "name": "TrycsCounter",
   "developer": "KirmGG",
