@@ -79,7 +79,9 @@ class $modify(TCPlayLayer, PlayLayer) {
             PlayLayer::storeCheckpoint(checkpoint);
             return;
         }
-        Ref<CCArray> older = CCArray::createWithArray(array);
+        // Not createWithArray: it copies every object, and checkpoints cannot be copied.
+        Ref<CCArray> older = CCArray::create();
+        older->addObjectsFromArray(array);
         array->removeAllObjects();
         PlayLayer::storeCheckpoint(checkpoint);
         for (unsigned i = 0; i < older->count(); ++i) array->insertObject(older->objectAtIndex(i), i);
