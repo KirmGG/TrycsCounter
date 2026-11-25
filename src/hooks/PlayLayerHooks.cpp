@@ -70,6 +70,21 @@ class $modify(TCPlayLayer, PlayLayer) {
         (void)self.setHookPriority("PlayLayer::destroyPlayer", Priority::First - 500);
     }
 
+    // GD keeps at most 50 practice checkpoints and drops the oldest when it stores
+    // another one. A count needs them over the whole level, so the older ones sit
+    // out of the list while the game stores the new one.
+    void storeCheckpoint(CheckpointObject* checkpoint) {
+        auto* array = m_checkpointArray;
+        if (!Session::get().isAnalyzing() || !array || array->count() < 50) {
+            PlayLayer::storeCheckpoint(checkpoint);
+            return;
+        }
+        Ref<CCArray> older = CCArray::createWithArray(array);
+        array->removeAllObjects();
+        PlayLayer::storeCheckpoint(checkpoint);
+        for (unsigned i = 0; i < older->count(); ++i) array->insertObject(older->objectAtIndex(i), i);
+    }
+
     // The analysis resets by itself right after a death (much faster than the respawn delay).
     void delayedResetLevel() {
         auto& s = Session::get();
