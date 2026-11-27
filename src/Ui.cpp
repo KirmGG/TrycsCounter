@@ -20,20 +20,10 @@ void restartFromPause() {
     }
 }
 
-// What the symbols after a window mean (menu legend and replay intro).
-std::vector<std::string> legendLines() {
-    return {
-        "~  depends on the previous click",
-        "-  disconnected    ^  easier approach (Deep)",
-        "!  swift    !!  double    !!!  triple swift",
-        "+  hit the limit    ?  may be off",
-    };
-}
-
 // Name of the measurement, like NaN GD's title cards.
 struct CounterName {
-    std::string title;      // "CBF Window Counter"
-    std::string rate;       // "@24,000SubFPS"
+    std::string title;      // "CBF Window"
+    std::string rate;       // "@2,400HzP"
     std::string header;     // "240Hz "Frames" w/ Syzzi's CBF"
 };
 
@@ -49,16 +39,13 @@ CounterName counterName(Session const& s) {
     double const subPerFrame = static_cast<double>(cfg::kRawTicksPerPhysicsFrame * std::max(1, s.units)) /
         std::max(1, s.stepTicks);
     long long const subFps = std::llround(subPerFrame * cfg::tps());
-    if (cbf) return {"CBF Window Counter", "@" + groupThousands(subFps) + "SubFPS",
-        fmt::format("{}Hz \"Frames\" w/ Syzzi's CBF", fps)};
-    if (s.precise) return {"Frame Window Counter", "@" + groupThousands(subFps) + "SubFPS",
+    if (cbf) return {"CBF Window", "@" + groupThousands(subFps) + "HzP", fmt::format("{}Hz \"Frames\" w/ Syzzi's CBF", fps)};
+    if (s.precise) return {"Frame Window", "@" + groupThousands(subFps) + "HzP",
         fmt::format("{}Hz \"Frames\" w/ Click Between Steps", fps)};
-    return {"Frame Window Counter", fmt::format("@{}FPS", fps), fmt::format("{}Hz Frames", fps)};
+    return {"Frame Window", fmt::format("@{}FPS", fps), fmt::format("{}Hz Frames", fps)};
 }
 
-// Black title card shown before a replay: level, counter, the buckets with
-// their rates and times on the right, the symbols and L* on the left.
-// A tap (or Esc) skips it.
+// Black title card shown before a replay.
 class ReplayIntro : public CCLayerColor {
     std::function<void()> m_done;
     bool m_finished = false;
@@ -128,74 +115,76 @@ protected:
         float const h = size.height;
         auto const name = counterName(s);
 
-        // Left: level, creator, saved run name.
+        // Left: the level and what it is, then the counter.
         float const left = w * 0.045f;
         float const leftWidth = w * 0.47f;
         std::string level = play && play->m_level ? std::string(play->m_level->m_levelName) : "Level";
         std::string creator = play && play->m_level ? std::string(play->m_level->m_creatorName) : "";
-        float y = h - 30.f;
-        fitWidth(text(this, level, {left, y}, {0.f, 0.5f}, 1.0f), leftWidth);
-        y -= 27.f;
-        if (!creator.empty()) {
-            fitWidth(text(this, "by " + creator, {left, y}, {0.f, 0.5f}, 0.6f), leftWidth);
-            y -= 20.f;
-        }
-        if (!s.resultsName.empty()) {
-            fitWidth(text(this, "(" + s.resultsName + ")", {left, y}, {0.f, 0.5f}, 0.55f), leftWidth);
-            y -= 20.f;
-        }
-
-        // The symbols.
-        if (cfg::flag("show-symbols")) {
-            y -= 6.f;
-            for (auto const& line : legendLines()) {
-                fitWidth(text(this, line, {left, y}, {0.f, 0.5f}, 0.3f, {200, 200, 200}), leftWidth);
-                y -= 12.f;
+        std::string subtitle = !s.resultsName.empty() ? s.resultsName : creator.empty() ? "" : "by " + creator;
+        if (s.borderReplay) {
+            // The card of the hitborders replay: the level, what it shows and its colour.
+            fitWidth(text(this, level, {w / 2.f, h * 0.76f}, {0.5f, 0.5f}, 1.1f), w * 0.9f);
+            fitWidth(text(this, "Hitborders", {w / 2.f, h * 0.54f}, {0.5f, 0.5f}, 1.1f), w * 0.9f);
+            fitWidth(text(this, "(Only projections)", {w / 2.f, h * 0.43f}, {0.5f, 0.5f}, 0.8f), w * 0.9f);
+            fitWidth(text(this, "Experimental", {w / 2.f, h * 0.09f}, {0.5f, 0.5f}, 0.7f, {255, 236, 112}), w * 0.9f);
+            auto* orange = text(this, "(Orange)", {0.f, h * 0.2f}, {0.f, 0.5f}, 0.9f, {255, 128, 0});
+            auto* rest = text(this, " is possible positions", {0.f, h * 0.2f}, {0.f, 0.5f}, 0.9f);
+            if (orange && rest) {
+                float const width = orange->getScaledContentSize().width + rest->getScaledContentSize().width;
+                orange->setPositionX((w - width) / 2.f);
+                rest->setPositionX(orange->getPositionX() + orange->getScaledContentSize().width);
             }
-        }
-
-        // Counter name and rate.
-        fitWidth(text(this, name.title, {left, 104.f}, {0.f, 0.5f}, 0.78f), leftWidth);
-        fitWidth(text(this, name.rate, {left, 80.f}, {0.f, 0.5f}, 0.78f), leftWidth);
-
-        // Bottom left: the precision line.
-        fitWidth(text(this, "(Precision is not Difficulty)", {left * 0.5f, 30.f}, {0.f, 0.5f}, 0.42f, {140, 140, 140}),
-            leftWidth);
-        std::string const precision = s.lstarReady && s.lstarTotal > 0.0
-            ? fmt::format("Raw Precision (24h): {:.2f} sigma/s", s.lstarTotal)
-            : std::string("Raw Precision (24h) in sigma/s");
-        fitWidth(text(this, precision, {left * 0.5f, 12.f}, {0.f, 0.5f}, 0.42f), leftWidth);
-
-        // Right: the buckets from the widest to the hardest, with rate and time.
-        float const right = w - w * 0.035f;
-        float const rightWidth = w * 0.46f;
-        int const fps = cfg::windowFps();
-        float const line = (h - 14.f) / (1.f + 2.f * static_cast<float>(kBucketLines));
-        float ry = h - 10.f;
-        fitWidth(text(this, name.header, {right, ry}, {1.f, 0.5f}, 0.42f), rightWidth);
-        ry -= line;
-        for (size_t i = kBucketLines; i-- > 0;) {
-            auto const [lo, hi] = bucketBounds(i, s.precise, cfg::maxDisplayFrames());
-            auto const color = overlay::kBucketColors[i];
-            std::string frames;
-            std::string rate;
-            std::string ms;
-            auto num = [](double v) { return fmt::format("{}", static_cast<int>(std::lround(v))); };
-            if (lo == hi) {
-                frames = fmt::format("{} Frame{}", num(lo), lo == 1.0 ? "" : "s");
-                rate = fmt::format("({:.0f}Hz FP)", fps / lo);
-                ms = fmt::format("({:.1f}ms)", lo * 1000.0 / fps);
-            } else {
-                frames = fmt::format("{}-{} Frames", num(lo), num(hi));
-                rate = lo <= 0.0 ? fmt::format("(>{}Hz FP)", fps) : fmt::format("(<{:.0f}Hz FP)", fps / lo);
-                ms = fmt::format("({:.1f}-{:.1f}ms)", lo * 1000.0 / fps, hi * 1000.0 / fps);
+        } else {
+            fitWidth(text(this, level, {left, h * 0.79f}, {0.f, 0.5f}, 0.95f), leftWidth);
+            if (!subtitle.empty()) fitWidth(text(this, subtitle, {left, h * 0.69f}, {0.f, 0.5f}, 0.95f), leftWidth);
+            auto const counter = fmt::format("Counter ({}F)", cfg::maxDisplayFrames());
+            float y = h * 0.49f;
+            for (auto const& line : {name.title, counter, name.rate}) {
+                fitWidth(text(this, line, {left, y}, {0.f, 0.5f}, 0.95f), leftWidth);
+                y -= h * 0.1f;
             }
-            fitWidth(text(this, frames + " " + rate, {right, ry}, {1.f, 0.5f}, 0.4f, color), rightWidth);
+
+            // Bottom left: what the number in the corner of the replay will be.
+            fitWidth(text(this, "(Precision is not Difficulty)", {left * 0.3f, 30.f}, {0.f, 0.5f}, 0.5f, {130, 130, 130}),
+                leftWidth);
+            if (auto* precision = text(this, "Raw Precision (24h) in o/s", {left * 0.3f, 11.f}, {0.f, 0.5f}, 0.5f)) {
+                fitWidth(precision, leftWidth);
+                this->addSigmaTail(precision);
+            }
+
+            // Right: the buckets from the widest to the hardest, with rate and time.
+            float const right = w - w * 0.035f;
+            float const rightWidth = w * 0.5f;
+            int const fps = cfg::windowFps();
+            size_t const rows = bucketCount(s.precise);
+            float const line = (h - 14.f) / (1.f + 2.f * static_cast<float>(rows));
+            float ry = h - 12.f;
+            fitWidth(text(this, name.header, {right, ry}, {1.f, 0.5f}, 0.55f), rightWidth);
             ry -= line;
-            fitWidth(text(this, ms, {right, ry}, {1.f, 0.5f}, 0.4f, color), rightWidth);
-            ry -= line;
+            for (size_t i = rows; i-- > 0;) {
+                auto const [lo, hi] = bucketBounds(i, s.precise, cfg::maxDisplayFrames());
+                auto const color = overlay::bucketColor(i, s.precise);
+                std::string frames;
+                std::string rate;
+                std::string ms;
+                auto num = [](double v) { return fmt::format("{}", static_cast<int>(std::lround(v))); };
+                if (lo == hi) {
+                    frames = fmt::format("{} Frame{}", num(lo), lo == 1.0 ? "" : "s");
+                    rate = fmt::format("({:.0f}Hz FP)", fps / lo);
+                    ms = fmt::format("({:.1f}ms)", lo * 1000.0 / fps);
+                } else {
+                    frames = fmt::format("{}-{} Frames", num(lo), num(hi));
+                    rate = lo <= 0.0 ? fmt::format("(>{}Hz FP)", fps) : fmt::format("(<{:.0f}Hz FP)", fps / lo);
+                    ms = fmt::format("({:.1f}-{:.1f}ms)", lo * 1000.0 / fps, hi * 1000.0 / fps);
+                }
+                float const scale = std::min(0.55f, line / 22.f);
+                fitWidth(text(this, frames + " " + rate, {right, ry}, {1.f, 0.5f}, scale, color), rightWidth);
+                ry -= line;
+                fitWidth(text(this, ms, {right, ry}, {1.f, 0.5f}, scale, color), rightWidth);
+                ry -= line;
+            }
+
         }
-        text(this, "tc.", {w - 4.f, 4.f}, {1.f, 0.f}, 0.3f, {230, 40, 40});
 
         this->setTouchEnabled(true);
         this->setKeypadEnabled(true);
@@ -205,7 +194,24 @@ protected:
         return true;
     }
 
-    static constexpr size_t kBucketLines = kBucketCount;
+    // The fonts have no "σ": the last "o" of the label gets the tail of one.
+    void addSigmaTail(CCLabelBMFont* label) {
+        auto* glyphs = label->getChildren();
+        std::string const value = label->getString();
+        size_t const at = value.rfind('o');
+        if (!glyphs || at == std::string::npos || at >= glyphs->count()) return;
+        auto* glyph = typeinfo_cast<CCSprite*>(glyphs->objectAtIndex(at));
+        if (!glyph) return;
+        auto const box = glyph->boundingBox();
+        auto const t = label->nodeToParentTransform();
+        auto const from = CCPointApplyAffineTransform({box.getMaxX() - box.size.width * 0.25f, box.getMaxY() - box.size.height * 0.2f}, t);
+        auto const to = CCPointApplyAffineTransform({box.getMaxX() + box.size.width * 0.3f, box.getMaxY() - box.size.height * 0.2f}, t);
+        float const thickness = std::max(1.f, box.size.height * label->getScaleY() * 0.11f);
+        auto const color = label->getColor();
+        auto* tail = CCLayerColor::create({color.r, color.g, color.b, 255}, std::max(1.f, to.x - from.x), thickness);
+        tail->setPosition({from.x, from.y - thickness / 2.f});
+        this->addChild(tail);
+    }
 };
 
 } // namespace
@@ -294,10 +300,6 @@ void askAndSaveRun(std::function<void()> after = {}) {
 }
 
 // The TC menu: everything the mod does, opened from the pause menu.
-//   status card       what is recorded / counted / saved
-//   actions           record, count, Deep Count / replay, save, saved runs
-//   display           checkboxes for Live Counter and what is shown
-//   icons             legend (top right), folder, settings, clear results
 class TCMenuPopup : public geode::Popup {
     CCNode* m_content = nullptr;
     CCLabelBMFont* m_status = nullptr;
@@ -427,8 +429,7 @@ protected:
         m_status->limitLabelWidth(kPanelWidth - 20.f, 0.62f, 0.3f);
     }
 
-    // Rebuilt after the next frame: a button must not be removed while it is
-    // still handling its own click.
+    // Rebuilt after the next frame: a button must not be removed while it is still handling its own click.
     void refreshLater() {
         Ref<TCMenuPopup> self = this;
         Loader::get()->queueInMainThread([self] {
@@ -476,6 +477,7 @@ protected:
         auto* bottom = row(139.f);
         action(bottom, "Replay", "GJ_button_02.png", menu_selector(TCMenuPopup::onReplay), results && !busy);
         action(bottom, "Graph", "GJ_button_02.png", menu_selector(TCMenuPopup::onGraph), results);
+        action(bottom, "Hitborders (exp.)", "GJ_button_02.png", menu_selector(TCMenuPopup::onHitborders), results && !busy);
         action(bottom, s.resultsSaved && results ? "Saved" : "Save Run", "GJ_button_01.png",
             menu_selector(TCMenuPopup::onSave), results && !busy && !s.resultsSaved);
         action(bottom, fmt::format("Saved Runs ({})", savedRunCount(s.levelKey)), "GJ_button_05.png",
@@ -538,7 +540,6 @@ protected:
             return;
         }
         // Recording runs in practice mode, restarted at the start of the level.
-        // The old checkpoints go: respawns must stay inside the recording.
         s.recordingEnabled = true;
         if (!play->m_isPracticeMode) play->togglePracticeMode(true);
         play->removeAllCheckpoints();
@@ -644,6 +645,48 @@ protected:
         computeLStar();
     }
     void onSymbols(CCObject*) { this->flip("show-symbols"); }
+
+    void onHitborders(CCObject*) {
+        auto& s = Session::get();
+        if (!resultsForLevel(PlayLayer::get())) return;
+        if (!s.deepCounted) {
+            FLAlertLayer::create("Hitborders (experimental)", "Run <cg>Deep Count</c> first: the hitborders are made from its windows.", "OK")->show();
+            return;
+        }
+        Ref<TCMenuPopup> self = this;
+        auto make = [self] {
+            auto& s = Session::get();
+            auto* play = PlayLayer::get();
+            if (!play || !resultsForLevel(play)) return;
+            s.borderMode = true;
+            auto const error = startAnalysis(play, RunRecord(s.source), true);
+            if (!error.empty()) {
+                s.borderMode = false;
+                FLAlertLayer::create("TrycsCounter", error, "OK")->show();
+                return;
+            }
+            self->onClose(nullptr);
+            resumeFromPause();
+        };
+        if (s.borders.empty()) {
+            createQuickPopup("Hitborders (experimental)",
+                "Replays every click at the <cy>early</c> and the <cy>late</c> edge of its window, then plays the run in "
+                "layout mode with where the player can be (orange) and a white trail behind it.",
+                "Cancel", "Make", [make](FLAlertLayer*, bool start) {
+                    if (start) make();
+                });
+            return;
+        }
+        createQuickPopup("Hitborders (experimental)", "Play the replay of the hitborders, or make them again?", "Make again", "Play",
+            [self, make](FLAlertLayer*, bool play) {
+                if (!play) {
+                    make();
+                    return;
+                }
+                self->onClose(nullptr);
+                playHitborders(PlayLayer::get());
+            }, true, true);
+    }
     void onDing(CCObject*) { this->flip("ding-enabled"); }
 
     void onLegend(CCObject*) {

@@ -15,7 +15,6 @@ namespace {
 constexpr int kResetDeathIgnoreRawTicks = 32;
 
 // Time left in a stage of the count, from how fast its progress moved so far.
-// Only time the count runs is measured: a pause shows up as one long frame.
 class StageClock {
     int m_stage = -1;
     double m_startFraction = 0.0;
@@ -66,13 +65,10 @@ class $modify(TCPlayLayer, PlayLayer) {
 
     static void onModify(auto& self) {
         // First, so deaths of the trajectory copies never reach other mods.
-        // Before noclip mods too: they swallow the call, and the analysis must see every hit.
         (void)self.setHookPriority("PlayLayer::destroyPlayer", Priority::First - 500);
     }
 
-    // GD keeps at most 50 practice checkpoints and drops the oldest when it stores
-    // another one. A count needs them over the whole level, so the older ones sit
-    // out of the list while the game stores the new one.
+    // GD keeps at most 50 practice checkpoints and drops the oldest when it stores another one.
     void storeCheckpoint(CheckpointObject* checkpoint) {
         auto* array = m_checkpointArray;
         if (!Session::get().isAnalyzing() || !array || array->count() < 50) {
@@ -94,8 +90,7 @@ class $modify(TCPlayLayer, PlayLayer) {
         PlayLayer::delayedResetLevel();
     }
 
-    // Counting: the level is not drawn, so its per-frame visibility work is
-    // skipped (setting "Fast counting"; switched off if trials then differ).
+    // Counting: the level is not drawn, so its per-frame visibility work is skipped.
     void updateVisibility(float dt) {
         auto const& s = Session::get();
         if (s.skipVisuals && s.isAnalyzing() && !s.liveSim) return;
@@ -108,8 +103,7 @@ class $modify(TCPlayLayer, PlayLayer) {
     }
 
     void setupHasCompleted() {
-        // The game resets the level inside setupHasCompleted: the counter labels
-        // of the previous level must be forgotten before that.
+        // The game resets the level inside setupHasCompleted.
         Session::get().resetHudPointers();
         PlayLayer::setupHasCompleted();
         auto& s = Session::get();
@@ -181,8 +175,7 @@ class $modify(TCPlayLayer, PlayLayer) {
         noteStepDt(s);
         finalizeCbfStep(s);
         s.resetCbfStep();
-        // The first reset of the player's own after a replay: the counters go
-        // back to before it, and this reset counts as the next attempt.
+        // The first reset of the player's own after a replay.
         if (!s.drivesInput() && !s.liveSim) restorePlayerStats(this);
 
         // Loading the saved real attempt after a live simulation: nothing else may change.
@@ -239,8 +232,7 @@ class $modify(TCPlayLayer, PlayLayer) {
                 if (!s.recording.empty()) s.recordingRespawns.push_back({tick, reached});
                 std::erase_if(s.stepDts, [tick](StepDt const& e) { return e.tick > tick; });
                 if (s.trace.size() > static_cast<size_t>(std::max(tick, 0))) s.trace.resize(static_cast<size_t>(std::max(tick, 0)));
-                // The buttons as the kept inputs leave them; the game is asked
-                // on the next step whether it still holds them.
+                // The buttons as the kept inputs leave them.
                 s.recordHeld.clear();
                 for (auto const& e : s.recording) s.recordHeld[{e.button, e.player1}] = e.down;
                 s.syncHeldAfterRespawn = !s.recording.empty();
@@ -274,8 +266,7 @@ class $modify(TCPlayLayer, PlayLayer) {
         }
     }
 
-    // Every checkpoint (the player's, the analyzer's, Live Counter snapshots) is
-    // created here: remember the level tick it belongs to.
+    // Every checkpoint is created here: remember the level tick it belongs to.
     CheckpointObject* createCheckpoint() {
         auto* checkpoint = PlayLayer::createCheckpoint();
         if (checkpoint) {
@@ -305,14 +296,15 @@ class $modify(TCPlayLayer, PlayLayer) {
     }
 
     void destroyPlayer(PlayerObject* player, GameObject* object) {
-        // Capture identity and time BEFORE the game's handler: it may replace
-        // the active player pointers.
+        // Capture identity and time BEFORE the game's handler: it may replace the active player pointers.
         auto& s = Session::get();
         // A trajectory copy hit a hazard: only the simulation needs to know.
         if (s.trajSimulating && player == s.trajSim.data() && object != m_anticheatSpike) {
             s.trajDead = true;
             return;
         }
+        // Deep Count, duals: the other player is being measured alone.
+        if (s.immunePlayer && s.stage == Stage::Probing && player == (s.immunePlayer == 1 ? m_player1 : m_player2)) return;
         int const deathTick = currentTick(this);
         bool const wasPlayer1 = player && player == m_player1;
         bool const wasPlayer2 = player && player == m_player2;
@@ -346,6 +338,7 @@ class $modify(TCPlayLayer, PlayLayer) {
                 deathTick >= s.trialHitFrom && deathTick < s.trialHitLimit) {
                 s.pendingOutcome = ProbeOutcome::Died;
                 s.lastProbeDeathTick = deathTick;
+                s.lastDeathP2 = wasPlayer2;
                 s.pendingReset = Session::PendingReset::Level;   // noclip: the game does not reset by itself
             }
             return;
@@ -365,6 +358,7 @@ class $modify(TCPlayLayer, PlayLayer) {
             } else if (s.pendingOutcome == ProbeOutcome::None) {
                 s.pendingOutcome = ProbeOutcome::Died;
                 s.lastProbeDeathTick = deathTick;
+                s.lastDeathP2 = wasPlayer2;
                 if (!s.liveSim) s.pendingReset = Session::PendingReset::Level;
             }
         } else if (s.stage == Stage::Replay) {
@@ -398,9 +392,9 @@ class $modify(TCPlayLayer, PlayLayer) {
         PlayLayer::postUpdate(dt);
         auto& s = Session::get();
         startPendingReplay(this);
+        startPendingBorderReplay(this);
 
-        // Checkpoints only once the replay segment runs: right after the analysis was
-        // started the level still shows the old attempt.
+        // Checkpoints only once the replay segment runs.
         if (s.stage == Stage::BaselineReplay && !s.startFromBeginning && s.lastInjectedTick >= 0 &&
             m_player1 && !m_player1->m_isDead) {
             int const tick = currentTick(this);
@@ -417,13 +411,13 @@ class $modify(TCPlayLayer, PlayLayer) {
             }
         }
 
-        // The counter: during the replay, in Live Counter mode, and in attempts on a
-        // level with counted results (setting "Counter in attempts").
+        // The counter: during the replay, in Live Counter mode.
         bool const hud = !s.isAnalyzing() && (s.stage == Stage::Replay || cfg::flag("live-counter") ||
             (cfg::flag("hud-in-attempts") && resultsForLevel(this)));
         overlay::setHudVisible(this, hud);
         if (hud) overlay::updateHudStats(this);
         overlay::orientMarkers(this);
+        updateHitborders(this);
         {
             std::string status;
             double fraction = 0.0;
@@ -438,7 +432,8 @@ class $modify(TCPlayLayer, PlayLayer) {
                 stage = again ? 1 : 0;
             } else if (s.stage == Stage::Probing && (s.deepMode || s.verifyMode)) {
                 size_t const done = std::min(s.deepJobsTotal - s.deepJobs.size(), s.deepJobsTotal);
-                status = fmt::format("{}: {} of {}", s.verifyMode ? "Checking edges" : "Deep Count", done, s.deepJobsTotal);
+                status = fmt::format("{}: {} of {}", s.borderMode ? "Hitborders" : s.verifyMode ? "Checking edges" : "Deep Count",
+                    done, s.deepJobsTotal);
                 fraction = static_cast<double>(done) / std::max<size_t>(1, s.deepJobsTotal);
                 stage = s.verifyMode ? 2 : 3;
             } else if (s.stage == Stage::Probing) {
@@ -447,13 +442,19 @@ class $modify(TCPlayLayer, PlayLayer) {
                 fraction = static_cast<double>(done) / std::max<size_t>(1, s.planner.inputCount());
                 stage = 4;
             }
+            if (s.trainingFastForward()) {
+                status = fmt::format("Going to click #{}", s.training.index + 1);
+                fraction = static_cast<double>(currentTick(this)) / std::max(1, s.training.stopTick);
+                stage = 5;
+            }
             fraction = std::clamp(fraction, 0.0, 1.0);
-            bool const counting = s.isAnalyzing() && !s.liveSim;
+            bool const counting = (s.isAnalyzing() && !s.liveSim) || s.trainingFastForward();
             std::string timeLeft;
             if (counting) timeLeft = g_stageClock.timeLeft(stage, fraction);
             else g_stageClock.reset();
             std::string const trials = s.stage == Stage::Probing ? fmt::format("{} trials", s.trialsFinished) : "";
-            overlay::setCountingScreen(this, counting, status, fraction, timeLeft, trials);
+            std::string const title = s.trainingFastForward() ? "TRAINING" : s.borderMode ? "MAKING HITBORDERS" : "COUNTING FRAME WINDOWS";
+            overlay::setCountingScreen(this, counting, status, fraction, timeLeft, trials, title);
         }
         revealPassedInputs(this);
         captureLiveSnapshot(this);

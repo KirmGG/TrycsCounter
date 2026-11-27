@@ -1,7 +1,4 @@
-// Training of one click: the bot plays the counted run up to shortly before
-// it, then a practice checkpoint is placed and the player tries the click again
-// and again; each try shows how far it was from the counted timing and whether
-// it was inside the window.
+// Training of one click.
 
 #include "App.hpp"
 
@@ -11,8 +8,7 @@ namespace {
 
 constexpr int kTrainingLabelTag = 0x7F37;
 
-// The checkpoint is placed this long before the click (unless an earlier input
-// is closer), and the player is sent back this long after it.
+// The checkpoint is placed this long before the click, and the player is sent back this long after it.
 constexpr double kLeadSeconds = 2.0;
 constexpr double kAfterSeconds = 1.0;
 
@@ -74,7 +70,6 @@ std::string startTraining(size_t index) {
         return "This click has no counted window.";
     auto const& target = s.source.events[index];
     if (!target.down) return "Only presses can be trained.";
-    if (play->m_gameState.m_isDualMode && !target.player1) return "Clicks of player 2 cannot be trained.";
 
     int const rawTps = cfg::rawTps();
     int stop = std::max(cfg::kRawTicksPerPhysicsFrame, target.tick - static_cast<int>(kLeadSeconds * rawTps));
@@ -86,6 +81,7 @@ std::string startTraining(size_t index) {
     s.training.active = true;
     s.training.index = index;
     s.training.stopTick = stop;
+    muteAudio(true);
     log::info("Training click #{}: the bot plays up to raw tick {}, the click is at {}", index + 1, stop, target.tick);
     return {};
 }
@@ -93,7 +89,9 @@ std::string startTraining(size_t index) {
 void stopTraining() {
     auto& s = Session::get();
     if (!s.training.active) return;
+    bool const fastForward = s.trainingFastForward();
     s.training = {};
+    if (fastForward) muteAudio(false);
     s.recordingEnabled = false;
     s.recording.clear();
     s.recordHeld.clear();
@@ -114,6 +112,8 @@ void trainingStep(PlayLayer* play) {
         if (tick < t.stopTick || play->m_player1->m_isDead) return;
         // The bot hands over: practice from a checkpoint here.
         s.stage = Stage::Idle;
+        muteAudio(false);
+        overlay::setCountingScreen(play, false);
         if (!play->m_isPracticeMode) play->togglePracticeMode(true);
         play->markCheckpoint();
         s.recording.clear();
@@ -129,16 +129,15 @@ void trainingStep(PlayLayer* play) {
     }
 
     auto const& target = s.source.events[t.index];
-    bool const dual = play->m_gameState.m_isDualMode && play->m_player2;
+    bool const twoPlayer = play->m_levelSettings && play->m_levelSettings->m_twoPlayerMode;
     InputEvent const* press = nullptr;
     for (auto const& event : s.recording) {
-        if (event.down && event.button == target.button && (event.player1 || !dual)) {
+        if (event.down && event.button == target.button && (event.player1 == target.player1 || !twoPlayer)) {
             press = &event;
             break;
         }
     }
-    // The press is judged once its step is over (Click Between Frames gives it
-    // its place inside the step then).
+    // The press is judged once its step is over.
     if (!t.judged && press && tick > press->tick + cfg::kRawTicksPerPhysicsFrame) {
         t.judged = true;
         report(play, press);

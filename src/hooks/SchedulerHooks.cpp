@@ -8,7 +8,6 @@ namespace tc {
 namespace {
 
 // Wall-clock budget of one render frame while the analysis runs sped up.
-// Long enough for fast counting, short enough that the game keeps drawing (about 12 frames a second).
 constexpr std::chrono::milliseconds kSpeedUpFrameBudget{120};
 
 // Largest slice of game time given to one scheduler update while counting.
@@ -67,27 +66,31 @@ class $modify(TCScheduler, CCScheduler) {
         }
         if (s.liveRestorePending) restoreLive(PlayLayer::get());
 
-        if (!s.isAnalyzing()) {
+        bool const training = s.trainingFastForward();
+        if (!s.isAnalyzing() && !training) {
             CCScheduler::update(dt);
             return;
         }
 
-        // The game time of this rendered frame is dt * speed. It is split into
-        // slices of at most kSpeedUpChunkSeconds: one huge dt would make the game
-        // run all its steps in a single update, many tiny ones waste time on
-        // rendering related updates. The wall-clock budget keeps the window alive.
+        // The game time of this rendered frame is dt * speed.
         using Clock = std::chrono::steady_clock;
         auto const deadline = Clock::now() + kSpeedUpFrameBudget;
 
         double const speed = std::clamp(static_cast<double>(cfg::real("count-speed")), 1.0, 100000.0);
-        double const total = static_cast<double>(dt) * speed;
+        double total = static_cast<double>(dt) * speed;
+        if (training) {
+            // Up to the hand-over and no further: the player takes it from there.
+            auto* play = PlayLayer::get();
+            double const left = play ? static_cast<double>(s.training.stopTick - currentTick(play)) / cfg::rawTps() : 0.0;
+            total = std::clamp(left, 1.0 / cfg::rawTps(), total);
+        }
         int const chunks = std::max(1, static_cast<int>(std::ceil(total / kSpeedUpChunkSeconds)));
         float const chunkDt = static_cast<float>(total / static_cast<double>(chunks));
 
         for (int i = 0; i < chunks; ++i) {
             performPendingReset();
             CCScheduler::update(chunkDt);
-            if (!s.isAnalyzing() || Clock::now() >= deadline) break;
+            if (!(s.isAnalyzing() || s.trainingFastForward()) || Clock::now() >= deadline) break;
         }
     }
 };

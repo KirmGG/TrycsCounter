@@ -4,12 +4,7 @@
 
 namespace tc {
 
-// For every shown click the last passing and the first failing shift of each
-// side are tried again, strictly (no "Back on path"). A different outcome means
-// the edge is not reliable (random triggers, an approximate trial): the window
-// is made strict and marked "?". Shifts the normal count decided exactly (a
-// death, or a survival without "Back on path") would come out the same and are
-// not tried again. False when there is nothing to check.
+// For every shown click the last passing and the first failing shift of each side are tried again, strictly.
 bool prepareEdgeChecks(Session& s) {
     if (!cfg::flag("verify-edges")) return false;
     auto const& events = s.source.events;
@@ -46,8 +41,7 @@ bool prepareEdgeChecks(Session& s) {
     return true;
 }
 
-// The windows after the edge check: a passing edge that died now is moved in by
-// one step; any disagreement marks the click "?".
+// The windows after the edge check.
 void applyEdgeChecks(Session& s) {
     auto const& events = s.source.events;
     s.edgeUncertain.assign(events.size(), 0);
@@ -84,10 +78,7 @@ void applyEdgeChecks(Session& s) {
     log::info("Edge check: {} of {} clicks differed on the re-check", differed, checked);
 }
 
-// The edge check is done: its corrections become the base of the Deep Count
-// jobs. It went back to the first click and used up the checkpoints on the way,
-// so the baseline is replayed once more to place them again; the jobs start
-// after it (startProbing).
+// The edge check is done: its corrections become the base of the Deep Count jobs.
 void finishEdgePhase(PlayLayer* play, Session& s) {
     s.windows = s.deepBase;
     applyEdgeChecks(s);

@@ -35,16 +35,17 @@ int main() {
     assert(std::abs(windowFrames(tiny.widthTicks(), 480, 240) - 0.5) < 1e-9);
     assert(bucketIndex(0.5, true) == 0);
 
-    // Whole-frame buckets: 1, 2, 3, 4, 5, 6, 7-8, 9-10, 11-max.
+    // Whole-frame buckets: 1, 2, 3, 4, 5-6, 7-8, <=max.
     assert(bucketIndex(1.0, false) == 0);
     assert(bucketIndex(2.0, false) == 1);
     assert(bucketIndex(4.0, false) == 3);
-    assert(bucketIndex(6.0, false) == 5);
-    assert(bucketIndex(8.0, false) == 6);
-    assert(bucketIndex(10.0, false) == 7);
-    assert(bucketIndex(11.0, false) == 8);
-    assert(bucketIndex(12.0, false) == 8);
-    assert(bucketLabels(12, false)[8] == "11-12");
+    assert(bucketIndex(5.0, false) == 4);
+    assert(bucketIndex(6.0, false) == 4);
+    assert(bucketIndex(8.0, false) == 5);
+    assert(bucketIndex(9.0, false) == 6);
+    assert(bucketIndex(12.0, false) == 6);
+    assert(bucketLabels(12, false)[6] == "<=12");
+    assert(bucketCount(false) == 7);
 
     // Precise buckets are ranges, NaN GD style: 0-1 ... 5-6, 6-8, <10, <=max.
     assert(bucketIndex(0.5, true) == 0);

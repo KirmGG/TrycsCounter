@@ -40,16 +40,14 @@ inline int rawTps() { return tps() * kRawTicksPerPhysicsFrame; }
 inline int framesToTicks(int frames) { return tc::framesToTicks(frames, rawTps(), windowFps()); }
 inline int ticksToFrames(int ticks) { return tc::ticksToFramesCeil(ticks, rawTps(), windowFps()); }
 
-// Each side of a window is checked up to the display width, so the two sides
-// together always cover it (see ProbePlanner::startSide).
+// Each side of a window is checked up to the display width, so the two sides together always cover it.
 inline int maxWindowTicks();
 inline int maxShiftTicks() { return maxWindowTicks(); }
 inline int lookaheadTicks() { return framesToTicks(integer("lookahead-frames")); }
 inline int checkpointTicks() { return framesToTicks(integer("checkpoint-interval")); }
 inline int leadTicks() { return framesToTicks(integer("lead-frames")); }
 
-// Smallest shift the measurement makes, in raw ticks. Vanilla Click Between
-// Steps works at half a physics frame, so one raw tick.
+// Smallest shift the measurement makes, in raw ticks.
 inline int stepTicks(bool clickBetweenSteps) {
     auto const mode = text("precision");
     if (mode == "Frame") return kRawTicksPerPhysicsFrame;
@@ -87,8 +85,7 @@ inline double framesOrLimit(tc::WindowResult const& result) {
     return result.exceeded ? static_cast<double>(maxDisplayFrames()) : frames(result);
 }
 
-// The window as the player sees it: two decimals for hard clicks (below
-// "Two decimals below", 7 frames), one above it; whole frames unchanged.
+// The window as the player sees it.
 inline std::string windowLabel(double frames, bool precise, bool capped) {
     if (!precise) return tc::frameLabel(frames, false, capped);
     int const decimals = tc::windowDecimals(frames, static_cast<double>(real("decimals-below")),

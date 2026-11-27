@@ -1,9 +1,5 @@
 #pragma once
-// Counted runs saved to disk: the recorded inputs, everything needed to replay
-// them exactly, and the measured frame windows. A run is saved for the level it
-// was recorded on and is only offered on that level.
-//
-// Files: <mod save dir>/runs/<level key>/<unix time>.json
+// Counted runs saved to disk.
 
 #include <Geode/Geode.hpp>
 #include <Geode/utils/file.hpp>
@@ -36,9 +32,7 @@ inline uint64_t fnv1a(std::string_view data) {
     return hash;
 }
 
-// Online levels by their ID. Local and editor levels all have ID 0, so they are
-// named by their content: an edited level gets a new key, which is right, since
-// an old replay would not fit the changed level.
+// Online levels by their ID.
 inline std::string levelKeyOf(GJGameLevel* level) {
     if (!level) return "unknown";
     int const id = static_cast<int>(level->m_levelID.value());
@@ -78,8 +72,10 @@ struct SavedRun {
     int mismatchTick = -1;       // the replay left the attempt here (-1: never)
     std::vector<char> dependent; // per input: "~", depends on the previous click
     std::vector<char> uncertain; // per input: the edge check disagreed ("?")
-    // Deep Count, per input: smallest / largest window (frames, 0: not measured)
-    // and whether the click only worked when re-timed.
+    std::vector<char> otherMarker; // per input: a dual's marker is on the other player
+    bool deepCounted = false;
+    Hitborders borders;
+    // Deep Count, per input: smallest / largest window and whether the click only worked when re-timed.
     std::vector<DeepRange> deep;
 };
 
@@ -109,6 +105,62 @@ inline RunEnd endFromName(std::string const& name) {
     return RunEnd::Death;
 }
 
+// A path as one flat list: tick, x, y, tick, x, y, ... (positions to 0.1).
+inline matjson::Value pathToJson(std::vector<PathPoint> const& path) {
+    auto list = matjson::Value::array();
+    auto round = [](float v) { return std::round(static_cast<double>(v) * 10.0) / 10.0; };
+    for (auto const& p : path) {
+        list.push(p.tick);
+        list.push(round(p.x));
+        list.push(round(p.y));
+    }
+    return list;
+}
+
+inline std::vector<PathPoint> pathFromJson(matjson::Value const& value) {
+    std::vector<PathPoint> path;
+    auto list = value.asArray();
+    if (list.isErr()) return path;
+    auto const& v = list.unwrap();
+    for (size_t i = 0; i + 2 < v.size(); i += 3) {
+        path.push_back({v[i].as<int>().unwrapOr(0), static_cast<float>(v[i + 1].asDouble().unwrapOr(0.0)),
+            static_cast<float>(v[i + 2].asDouble().unwrapOr(0.0))});
+    }
+    return path;
+}
+
+inline matjson::Value bordersToJson(Hitborders const& b) {
+    auto root = matjson::Value::object();
+    root["path1"] = pathToJson(b.path1);
+    root["path2"] = pathToJson(b.path2);
+    // input, then early and late path of player 1 and of player 2
+    auto clicks = matjson::Value::array();
+    for (auto const& [index, sides] : b.clicks) {
+        clicks.push(std::vector<matjson::Value>{static_cast<int>(index), pathToJson(sides[0]), pathToJson(sides[1]),
+            pathToJson(sides[2]), pathToJson(sides[3])});
+    }
+    root["clicks"] = std::move(clicks);
+    return root;
+}
+
+inline Hitborders bordersFromJson(matjson::Value const& root) {
+    Hitborders b;
+    b.path1 = pathFromJson(root["path1"]);
+    b.path2 = pathFromJson(root["path2"]);
+    if (auto list = root["clicks"].asArray(); list.isOk()) {
+        for (auto const& item : list.unwrap()) {
+            auto f = item.asArray();
+            if (f.isErr() || f.unwrap().size() < 3) continue;
+            auto const& v = f.unwrap();
+            int const index = v[0].as<int>().unwrapOr(-1);
+            if (index < 0) continue;
+            auto& sides = b.clicks[static_cast<size_t>(index)];
+            for (size_t i = 0; i < 4 && i + 1 < v.size(); ++i) sides[i] = pathFromJson(v[i + 1]);
+        }
+    }
+    return b;
+}
+
 inline matjson::Value toJson(SavedRun const& data) {
     auto root = matjson::Value::object();
     root["version"] = kFormatVersion;
@@ -127,11 +179,17 @@ inline matjson::Value toJson(SavedRun const& data) {
     root["name"] = data.name;
     root["mismatchTick"] = data.mismatchTick;
 
-    // tick, down, button, player1, x, y, betweenSteps, cbf, frac
+    // tick, down, button, player1, x, y, betweenSteps, cbf, frac, then for a dual played by one player.
     auto events = matjson::Value::array();
     for (auto const& e : data.run.events) {
-        events.push(std::vector<matjson::Value>{e.tick, e.down, e.button, e.player1, static_cast<double>(e.x),
-            static_cast<double>(e.y), e.betweenSteps, e.cbf, e.frac});
+        std::vector<matjson::Value> f{e.tick, e.down, e.button, e.player1, static_cast<double>(e.x),
+            static_cast<double>(e.y), e.betweenSteps, e.cbf, e.frac};
+        if (e.dual) {
+            f.push_back(e.otherP2);
+            f.push_back(static_cast<double>(e.ox));
+            f.push_back(static_cast<double>(e.oy));
+        }
+        events.push(std::move(f));
     }
     root["events"] = std::move(events);
 
@@ -170,6 +228,11 @@ inline matjson::Value toJson(SavedRun const& data) {
         if (data.uncertain[i]) uncertain.push(static_cast<int>(i));
     }
     root["uncertain"] = std::move(uncertain);
+    auto other = matjson::Value::array();
+    for (size_t i = 0; i < data.otherMarker.size(); ++i) {
+        if (data.otherMarker[i]) other.push(static_cast<int>(i));
+    }
+    root["otherMarker"] = std::move(other);
 
     // index, smallest, largest, re-timed, step, [from, to, from, to, ...] of a disconnected window
     auto deep = matjson::Value::array();
@@ -189,6 +252,8 @@ inline matjson::Value toJson(SavedRun const& data) {
         deep.push(std::move(entry));
     }
     root["deep"] = std::move(deep);
+    root["deepCounted"] = data.deepCounted;
+    if (!data.borders.empty()) root["borders"] = bordersToJson(data.borders);
     // index, usual window of a click with a range
     auto typical = matjson::Value::array();
     for (size_t i = 0; i < data.deep.size(); ++i) {
@@ -239,6 +304,12 @@ inline geode::Result<SavedRun> fromJson(matjson::Value const& root) {
         e.betweenSteps = f[6].asBool().unwrapOr(false);
         e.cbf = f[7].asBool().unwrapOr(false);
         e.frac = f[8].asDouble().unwrapOr(0.0);
+        if (f.size() >= 12) {
+            e.dual = true;
+            e.otherP2 = f[9].asBool().unwrapOr(false);
+            e.ox = static_cast<float>(f[10].asDouble().unwrapOr(0.0));
+            e.oy = static_cast<float>(f[11].asDouble().unwrapOr(0.0));
+        }
         data.run.events.push_back(e);
     }
 
@@ -294,6 +365,13 @@ inline geode::Result<SavedRun> fromJson(matjson::Value const& root) {
 
     data.dependent.assign(data.run.events.size(), 0);
     data.uncertain.assign(data.run.events.size(), 0);
+    data.otherMarker.assign(data.run.events.size(), 0);
+    if (auto list = root["otherMarker"].asArray(); list.isOk()) {
+        for (auto const& item : list.unwrap()) {
+            int const i = item.as<int>().unwrapOr(-1);
+            if (i >= 0 && static_cast<size_t>(i) < data.otherMarker.size()) data.otherMarker[static_cast<size_t>(i)] = 1;
+        }
+    }
     data.deep.assign(data.run.events.size(), DeepRange{});
     if (auto list = root["uncertain"].asArray(); list.isOk()) {
         for (auto const& item : list.unwrap()) {
@@ -327,7 +405,10 @@ inline geode::Result<SavedRun> fromJson(matjson::Value const& root) {
                 data.deep[static_cast<size_t>(i)].typical = f.unwrap()[1].asDouble().unwrapOr(0.0);
         }
     }
+    data.deepCounted = root["deepCounted"].asBool().unwrapOr(false);
+    if (root.contains("borders")) data.borders = bordersFromJson(root["borders"]);
     if (auto list = root["deep"].asArray(); list.isOk()) {
+        if (!list.unwrap().empty()) data.deepCounted = true;
         for (auto const& item : list.unwrap()) {
             auto f = item.asArray();
             if (f.isErr() || f.unwrap().size() < 4) continue;
@@ -369,8 +450,7 @@ inline std::string formatTime(int64_t seconds) {
     return buffer;
 }
 
-// The last count of a level, kept even when it was not saved (not listed
-// among the saved runs).
+// The last count of a level, kept even when it was not saved.
 inline std::filesystem::path lastCountPath(std::string const& key) {
     return runsDir(key) / "last-count.autosave";
 }

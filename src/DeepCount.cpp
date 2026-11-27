@@ -7,11 +7,6 @@ namespace tc {
 namespace {
 
 // The normal count measures every click with all other clicks where they were.
-// Deep Count, per shown press: measures it again with deeper corrections of the
-// clicks after it, then with the previous press at several timings inside its
-// window ("~": the window changes; shown is the one it has most often), past
-// its own edges ("-": it works again beyond a gap) and, for hard clicks, with
-// the inputs before it re-timed ("^": an easier approach).
 
 // A value in the measurement units of `result`, converted to those of this count.
 int toCurrentUnits(Session const& s, int value, WindowResult const& result) {
@@ -19,8 +14,7 @@ int toCurrentUnits(Session const& s, int value, WindowResult const& result) {
     return static_cast<int>(std::lround(static_cast<double>(value) * s.units / from));
 }
 
-// Moves input `index` of `list` by `shift` units, with its release when whole
-// taps move, unless that release is `keep` (an input the job places itself).
+// Moves input `index` of `list` by `shift` units, with its release when whole taps move.
 void moveWithRelease(std::vector<InputEvent>& list, std::vector<InputEvent> const& events, size_t index, int shift,
     int units, size_t keep) {
     list[index] = shiftedEvent(events[index], shift, units);
@@ -28,12 +22,10 @@ void moveWithRelease(std::vector<InputEvent>& list, std::vector<InputEvent> cons
     if (partner != std::string::npos && partner != keep) list[partner] = shiftedEvent(events[partner], shift, units);
 }
 
-// Part of an input's window Deep Count moves it within (samples of the previous
-// click, easier approach): at the very edge the run only just survives.
+// Part of an input's window Deep Count moves it within: at the very edge the run only just survives.
 constexpr double kDeepSampleReach = 0.75;
 
-// The two candidates (early and late edge, at most 3 frames) of the next input
-// of an easier approach search. False when the search of that click is over.
+// The two candidates of the next input of an easier approach search.
 bool pushApproachJobs(Session& s, size_t k) {
     auto it = s.approach.find(k);
     if (it == s.approach.end()) return false;
@@ -60,8 +52,7 @@ bool pushApproachJobs(Session& s, size_t k) {
     return false;
 }
 
-// A candidate of the easier approach search is measured: once both candidates
-// of an input are, the better one is kept if it widened the click.
+// A candidate of the easier approach search is measured.
 void finishApproachJob(Session& s, size_t k, int shift, WindowResult const& result) {
     auto it = s.approach.find(k);
     if (it == s.approach.end()) return;
@@ -111,9 +102,7 @@ void buildDeepJobs(Session& s) {
     s.approach.clear();
     s.deepRebase.assign(events.size(), std::nullopt);
     s.deepJobsTotal = 0;
-    // Timings of the previous click: spread evenly over the inner three quarters
-    // of its window. At its very edge the run only just survives somewhere
-    // later, so any shift of this click kills it: a "0.01" that says nothing.
+    // Timings of the previous click: spread evenly over the inner three quarters of its window.
     int const samples = std::clamp(static_cast<int>(cfg::integer("deep-samples")), 2, 9);
     // Only a click shortly before can change the outcome of this one.
     int const reach = 2 * cfg::lookaheadTicks() + cfg::maxShiftTicks();
@@ -145,10 +134,8 @@ void buildDeepJobs(Session& s) {
             }
         }
         // Holes: does the click work again beyond the edges of its window?
-        // Pushed after the samples, so it runs before them (it moves this click, they an earlier one).
         if (cfg::integer("island-frames") > 0) s.deepJobs.push_back({k, k, 0, 2, 1.0});
-        // Re-measure with the Deep Count corrections: pushed after the jobs
-        // below, it runs first and becomes their base.
+        // Re-measure with the Deep Count corrections.
         bool const rebase = true;
         // Easier approach of a hard click (at most a quarter of the display limit).
         double const base = cfg::frames(s.deepBase[k]);
@@ -168,13 +155,24 @@ void buildDeepJobs(Session& s) {
         }
         if (rebase) s.deepJobs.push_back({k, k, 0, 5, 1.0});
     }
+    // Duals played by one player.
+    s.otherMarker.resize(events.size(), 0);
+    for (size_t k = 0; k < events.size() && k < s.deepBase.size(); ++k) {
+        auto const& w = s.deepBase[k];
+        if (!events[k].dual || !overlay::isShown(events[k], w) || w.earlyCapped || w.lateCapped) continue;
+        int const step = std::max(1, toCurrentUnits(s, w.stepTicks, w));
+        auto const early = s.trialDeathP2.find({k, -(toCurrentUnits(s, w.earlyTicks, w) + step)});
+        auto const late = s.trialDeathP2.find({k, toCurrentUnits(s, w.lateTicks, w) + step});
+        if (early == s.trialDeathP2.end() || late == s.trialDeathP2.end()) continue;
+        bool const upper = events[k].otherP2;
+        if (early->second == upper && late->second == upper) s.deepJobs.push_back({k, k, 0, 7, 1.0});
+    }
     // (pushApproachJobs counted its jobs already.)
     s.deepJobsTotal = s.deepJobs.size();
     s.deepJobActive = false;
 }
 
-// Stores what the finished job found and starts the next one (from the back, so
-// the checkpoints are only ever trimmed from the end). False once all are done.
+// Stores what the finished job found and starts the next one.
 bool beginNextDeepJob(Session& s) {
     if (s.deepJobActive) {
         auto const& results = s.planner.results();
@@ -193,14 +191,17 @@ bool beginNextDeepJob(Session& s) {
             }
         } else if (s.deepCurrent.variant == 3) {
             if (k < s.edgeOutcomes.size()) s.edgeOutcomes[k] = s.planner.fixedOutcomes();
+        } else if (s.deepCurrent.variant == 7) {
+            // The upper player's click is the hard one if the lower one alone has more than 2 frames more.
+            if (k < results.size() && k < s.otherMarker.size() && results[k].valid)
+                s.otherMarker[k] = cfg::framesOrLimit(results[k]) - cfg::frames(s.deepBase[k]) > 2.0 + 1e-6;
         } else if (k < results.size() && s.deepCurrent.variant == 4) {
             finishApproachJob(s, k, s.deepCurrent.prevShift, results[k]);
         } else if (k < results.size() && k < s.deepSamples.size() && k < s.deepHoles.size()) {
             if (s.deepCurrent.variant == 2) {
                 s.deepHoles[k] = results[k];
             } else if (!results[k].valid && !s.deepCurrent.follow) {
-                // With the previous click earlier or later a player clicks this one
-                // earlier or later too: measure it again moved along (same rhythm).
+                // With the previous click earlier or later a player clicks this one earlier or later too.
                 auto again = s.deepCurrent;
                 again.follow = true;
                 s.deepJobs.push_back(again);
@@ -210,13 +211,13 @@ bool beginNextDeepJob(Session& s) {
             }
         }
     }
+    s.immunePlayer = 0;
     if (s.deepJobs.empty()) return false;
     s.deepCurrent = s.deepJobs.back();
     s.deepJobs.pop_back();
     s.deepJobActive = true;
 
-    // Strict trials (no "Back on path"): the edge check, and the re-measure of a
-    // click whose edge it found approximate, which would otherwise widen again.
+    // Strict trials: the edge check, and the re-measure of a click whose edge it found approximate.
     size_t const index = s.deepCurrent.index;
     s.strictTrials = s.deepCurrent.variant == 3 ||
         (s.deepCurrent.variant == 5 && index < s.edgeUncertain.size() && s.edgeUncertain[index]);
@@ -229,6 +230,27 @@ bool beginNextDeepJob(Session& s) {
         auto config = plannerConfig(s, s.source.endTick, s.source.endKind);
         config.onlyIndex = static_cast<int>(k);
         for (auto const& check : s.edgeChecks[k]) config.fixedShifts.push_back(check.shift);
+        s.planner.begin(plannerInputs(s.trialBase, s.units, &s.freeFlight), config);
+        return true;
+    }
+    if (s.deepCurrent.variant == 6) {
+        // Hitborders: the click at both edges of its window, the paths are kept.
+        s.trialBase = events;
+        auto config = plannerConfig(s, s.source.endTick, s.source.endKind);
+        config.onlyIndex = static_cast<int>(index);
+        auto const& w = s.deepBase[index];
+        // A window the count stopped measuring is measured on both sides now; the others only at their edges.
+        if (w.exceeded || w.earlyCapped || w.lateCapped) config.maxWindowTicks = 2 * config.maxShift + config.step;
+        else config.fixedShifts = s.borderShifts[index];
+        s.planner.begin(plannerInputs(s.trialBase, s.units, &s.freeFlight), config);
+        return true;
+    }
+    if (s.deepCurrent.variant == 7) {
+        // The lower player alone: the upper one cannot die.
+        s.immunePlayer = events[index].otherP2 ? 2 : 1;
+        s.trialBase = events;
+        auto config = plannerConfig(s, s.source.endTick, s.source.endKind);
+        config.onlyIndex = static_cast<int>(index);
         s.planner.begin(plannerInputs(s.trialBase, s.units, &s.freeFlight), config);
         return true;
     }
@@ -288,8 +310,7 @@ bool beginNextDeepJob(Session& s) {
 
     auto config = plannerConfig(s, s.source.endTick, s.source.endKind);
     config.onlyIndex = static_cast<int>(s.deepCurrent.index);
-    // With the previous click moved, this click must still work where it is
-    // (at its recorded time, or moved along with the previous one).
+    // With the previous click moved, this click must still work where it is.
     config.controlTrial = true;
     s.planner.begin(plannerInputs(s.trialBase, s.units, &s.freeFlight), config);
     return true;
@@ -337,8 +358,7 @@ void finishDeep(Session& s) {
                 range.broken = true;
                 continue;
             }
-            // A single-step window (0.01) with the previous click moved: the run
-            // only just survives somewhere, the click itself is not that tight.
+            // A single-step window with the previous click moved.
             if (precise && result.earlyTicks == 0 && result.lateTicks == 0 && base > 0.5) {
                 ++marginal;
                 continue;
@@ -348,8 +368,7 @@ void finishDeep(Session& s) {
             range.hi = std::max(range.hi, frames);
             windows.push_back({frames, sample.weight});
         }
-        // The value a player usually gets, weighted by how likely each timing of
-        // the previous click is; values within a hair count as the same.
+        // The value a player usually gets, weighted by how likely each timing of the previous click is.
         if (range.ranged()) range.typical = typicalWindow(windows, precise ? 0.06 : 0.5, base);
         s.deep[k] = range;
     }

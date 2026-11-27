@@ -6,12 +6,7 @@ namespace tc {
 
 namespace {
 
-//
-// CBF (syzzi.click_between_frames) applies an input inside the update of player 1:
-// it runs the players for the part of the physics step before the input, calls
-// handleButton, then runs the rest of the step. The mod records how much of the
-// step had been simulated when the input arrived (`frac`) and replays such inputs
-// by splitting the step in the same way, so the replay does not need CBF itself.
+// CBF applies an input inside the update of player 1.
 
 constexpr char const* kCbfModId = "syzzi.click_between_frames";
 
@@ -42,8 +37,6 @@ void finalizeCbfStep(Session& s) {
 namespace {
 
 // A new physics step starts whenever the level clock moves.
-// Step lengths closer than this are the same (sums of split sub-steps differ
-// from the whole step in the last float bits).
 constexpr float kStepDtEpsilon = 1e-4f;
 
 } // namespace
@@ -59,8 +52,7 @@ void noteStepDt(Session& s) {
     s.stepDts.push_back({s.cbfAccTick, s.cbfAcc1, s.cbfAcc2});
 }
 
-// Replay: the recorded length of this step for a player, or `dt` when the
-// recording had the normal length (or none is known).
+// Replay: the recorded length of this step for a player, or `dt` when the recording had the normal length.
 float replayStepDt(Session const& s, int tick, bool player1, float dt) {
     auto const& dts = s.source.stepDts;
     auto it = std::upper_bound(dts.begin(), dts.end(), tick, [](int t, StepDt const& e) { return t < e.tick; });
@@ -88,12 +80,10 @@ int eventPos(InputEvent const& event, int units) {
     return pos;
 }
 
-// The input moved by `shift` measurement units. A CBF input moves continuously
-// through the physics steps, any other input by whole raw ticks.
+// The input moved by `shift` measurement units.
 InputEvent shiftedEvent(InputEvent event, int shift, int units) {
     if (units > 1) {
-        // Sub-frame measurement (CBF): an input moved inside a physics step is
-        // applied the way CBF applies it, one moved onto a step start like any input.
+        // Sub-frame measurement: an input moved inside a physics step is applied the way CBF applies it.
         double const base = event.cbf ? event.frac : 0.0;
         double const total = base + static_cast<double>(shift) / (cfg::kRawTicksPerPhysicsFrame * units);
         double const carry = std::floor(total + 1e-9);
@@ -107,8 +97,8 @@ InputEvent shiftedEvent(InputEvent event, int shift, int units) {
     return event;
 }
 
-// CBF's own "buffering" rule: a player that is airborne and cannot act right now
-// takes the input at the start of the step instead of splitting it.
+// CBF's own "buffering" rule: a player that is airborne and cannot act right now takes the input at the start
+// of the step instead of splitting it.
 bool cbfCanSplit(PlayerObject* player) {
     return player->m_isOnGround || (player->m_touchingRings && player->m_touchingRings->count()) || player->m_isDashing ||
         player->m_isDart || player->m_isBird || player->m_isShip || player->m_isSwing;
@@ -129,9 +119,7 @@ void resetCollisionLog(PlayerObject* player) {
 // Measurement units and shift step for a run: CBF runs are measured in 1/100 frame.
 void configureUnits(Session& s, PlayLayer* play, std::vector<InputEvent> const& events) {
     bool const anyCbf = std::any_of(events.begin(), events.end(), [](InputEvent const& e) { return e.cbf; });
-    // Sub-frame steps only for runs with real between-steps (CBF) inputs. Inputs
-    // of a bot sit on step starts; moving them inside a step would measure CBF's
-    // physics instead of the click.
+    // Sub-frame steps only for runs with real between-steps (CBF) inputs.
     bool const fine = anyCbf;
     s.units = fine ? cfg::kCbfUnitsPerRawTick : 1;
     s.stepTicks = fine ? cfg::cbfStepUnits() : cfg::stepTicks(play->m_clickBetweenSteps);
@@ -141,10 +129,7 @@ void configureUnits(Session& s, PlayLayer* play, std::vector<InputEvent> const& 
         std::count_if(events.begin(), events.end(), [](InputEvent const& e) { return e.cbf; }));
 }
 
-// Replays the Click Between Frames inputs of this physics step the way CBF
-// applies them: player updates for the part of the step before each input, the
-// input, then the rest of the step. Returns false when the step has no such input
-// and the normal update should run.
+// Replays the Click Between Frames inputs of this physics step the way CBF applies them.
 bool replayCbfStep(PlayLayer* play, PlayerObject* p1, float dt, int tick) {
     auto& s = Session::get();
     if (s.startFromBeginning || s.pendingReset != Session::PendingReset::None || s.lastInjectedTick < 0 || !p1 || p1->m_isDead)

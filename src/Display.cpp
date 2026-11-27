@@ -11,11 +11,7 @@ constexpr int kDingMaxLagTicks = 8;
 
 } // namespace
 
-// Shows the markers of the inputs the player has just reached, announces them
-// with the ding, pulses the counter and updates it. Inputs are reached by the
-// level clock (not by the player's X position, which goes back with reverse
-// portals and jumps with teleports). Inputs passed before a respawn are counted
-// and marked silently.
+// Shows the markers of the inputs the player has just reached, announces them with the ding.
 void revealPassedInputs(PlayLayer* play) {
     auto& s = Session::get();
     if (!s.hasResults || s.isAnalyzing() || s.resultsKey != s.levelKey) return;
@@ -36,12 +32,15 @@ void revealPassedInputs(PlayLayer* play) {
         ++s.displayCursor;
         if (!overlay::isShown(event, result)) continue;
 
-        bool const silent = target <= s.displaySilentUntil;
+        bool const silent = target <= s.displaySilentUntil || s.trainingFastForward();
         double const frames = shownWindow(s, index);
         bool const ranged = index < s.deep.size() && s.deep[index].ranged();
         bool const capped = result.capped() && !ranged;
-        overlay::showMarkerText(play, event, frames, capped,
-            cfg::windowLabel(frames, cfg::isPrecise(result), capped) + resultMarks(s, index));
+        // The replay of the hitborders counts and dings, but shows no rings.
+        if (!s.borderReplay) {
+            overlay::showMarkerText(play, markerEvent(s, index), frames, capped,
+                cfg::windowLabel(frames, cfg::isPrecise(result), capped) + resultMarks(s, index));
+        }
         size_t const bucket = overlay::bucketOf(frames);
         ++s.visibleCounts[bucket];
         s.lastShownMs = windowMs(frames, cfg::windowFps());
@@ -50,7 +49,7 @@ void revealPassedInputs(PlayLayer* play) {
             overlay::pulseBucket(bucket);
             overlay::flashLastClick();
             if (tick - target <= kDingMaxLagTicks) overlay::playDing(frames);
-            if (cfg::flag("show-notes")) {
+            if (cfg::flag("show-notes") && !s.borderReplay) {
                 auto const notes = deepNotes(s, index);
                 if (!notes.empty()) overlay::showNote(play, notes, cfg::isPrecise(result));
             }
@@ -108,14 +107,14 @@ bool wantedHudPrecise(PlayLayer* play) {
 
 } // namespace
 
-// Rebuilds the counter, all markers and the counts up to now without dings or
-// animations (after a settings change, new results, a practice respawn).
+// Rebuilds the counter, all markers and the counts up to now without dings or animations.
 void refreshDisplay(PlayLayer* play) {
     auto& s = Session::get();
     if (!play) return;
     s.hudPrecise = wantedHudPrecise(play);
     overlay::clearMarkers(play);
     overlay::createCounterHud(play);
+    drawHitborders(play);
     s.displaySilentUntil = currentTick(play);
 }
 
@@ -170,8 +169,7 @@ void computeLStar() {
     }).detach();
 }
 
-// Deep Count found an approach (earlier inputs timed differently) that makes
-// the click at least a frame wider than in this run.
+// Deep Count found an approach that makes the click at least a frame wider than in this run.
 bool hasEasierApproach(RunView const& run, size_t index) {
     if (index >= run.deep.size() || index >= run.windows.size()) return false;
     auto const& d = run.deep[index];
@@ -190,8 +188,7 @@ std::string resultMarks(RunView const& run, size_t index) {
     return clickMarks(dependent, swift, uncertain, disconnected, hasEasierApproach(run, index));
 }
 
-// The window shown for a counted click: the measured one, or for a click that
-// depends on the previous click (Deep Count) the one it usually has.
+// The window shown for a counted click.
 double shownWindow(RunView const& run, size_t index) {
     auto const& result = run.windows[index];
     double const frames = cfg::frames(result);
@@ -209,22 +206,19 @@ std::string noteValue(double frames, bool precise) {
 
 } // namespace
 
-// NaN GD style notes of a click, from Deep Count only (the normal count does
-// not know these details): ranges, re-timing and disconnected windows.
+// NaN GD style notes of a click, from Deep Count only: ranges, re-timing and disconnected windows.
 std::vector<std::string> deepNotes(Session const& s, size_t index) {
     std::vector<std::string> lines;
     if (index >= s.deep.size() || index >= s.windows.size()) return lines;
     auto const& d = s.deep[index];
     bool const precise = cfg::isPrecise(s.windows[index]);
-    // The range only matters for hard clicks: at most a quarter of the display
-    // limit (16 -> 4, 12 -> 3, 100 -> 25) at its smallest.
+    // The range only matters for hard clicks: at most a quarter of the display limit at its smallest.
     if (d.ranged() && d.lo <= cfg::maxDisplayFrames() / 4.0 + 1e-9) {
         lines.push_back("Can be from " + noteValue(d.lo, precise) + " to " + noteValue(d.hi, precise));
         lines.push_back("depending on the previous click");
         lines.push_back("Mostly around " + noteValue(shownWindow(s, index), precise));
     }
-    // Only for hard clicks, like the range: the previous click moved and this
-    // one works neither where it was nor moved along with it.
+    // Only for hard clicks, like the range.
     if (d.broken && cfg::frames(s.windows[index]) <= cfg::maxDisplayFrames() / 4.0 + 1e-9) {
         lines.push_back("With the previous click timed differently");
         lines.push_back("this one needs its own timing");

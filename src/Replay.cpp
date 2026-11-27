@@ -9,13 +9,11 @@ namespace {
 // A baseline death this close to the recorded end counts as reaching it.
 constexpr int kDeathToleranceTicks = 4;
 
-// A replay that leaves the attempt this soon after a practice respawn left it
-// because of the respawn (8 physics frames).
+// A replay that leaves the attempt this soon after a practice respawn left it because of the respawn.
 constexpr int kRespawnBlameTicks = 8 * cfg::kRawTicksPerPhysicsFrame;
 
 
-// Describes the failed replay that followed the attempt the longest (not the
-// last one tried: a worse offset usually breaks much earlier).
+// Describes the failed replay that followed the attempt the longest.
 std::string describeDesync(Session const& s) {
     auto const& best = s.bestFailure;
     std::string nextInput = "none";
@@ -37,10 +35,7 @@ std::string describeDesync(Session const& s) {
         best.reach, cfg::ticksToFrames(best.reach), best.deathTick, best.offset, offsets, best.cursor,
         s.source.events.size(), nextInput);
 
-    // A practice respawn before this place: right after it the checkpoint put
-    // the player back a little differently than playing straight through; later,
-    // the life before the respawn had already been here and could have left
-    // orbs, pads or triggers used.
+    // A practice respawn before this place.
     for (auto it = s.source.respawns.rbegin(); it != s.source.respawns.rend(); ++it) {
         if (best.reach < it->tick) continue;
         if (best.reach - it->tick <= kRespawnBlameTicks) {
@@ -73,8 +68,7 @@ std::string describeDesync(Session const& s) {
     return message;
 }
 
-// Next replay alignment to try: the next candidate, or, once all were tried,
-// the one that followed the recorded attempt the longest. False: nothing left.
+// Next replay alignment to try.
 bool pickNextAlignment(Session& s) {
     if (s.alignmentIndex + 1 < kAlignmentCandidates.size()) {
         ++s.alignmentIndex;
@@ -124,8 +118,7 @@ void onBaselineDeath(Session& s, int deathTick, bool player1) {
     if (layoutFallback(s)) return;
     int const reach = s.baselineDivergeTick >= 0 ? s.baselineDivergeTick : deathTick;
     if (reach > s.bestFailure.reach) s.bestFailure = {reach, deathTick, s.activeOffset(), s.replayCursor};
-    // The replay diverged from the recorded run. Try the next input alignment
-    // before giving up: the recorder and the replay may differ by a half step.
+    // The replay diverged from the recorded run.
     s.alignmentScores[s.alignmentIndex] = kAlignmentDied;
     if (!s.baselineFinal && pickNextAlignment(s)) {
         log::warn("Baseline replay died at raw tick {}; retrying with replay offset {}", deathTick, s.activeOffset());
@@ -134,10 +127,7 @@ void onBaselineDeath(Session& s, int deathTick, bool player1) {
     abortAnalysis(describeDesync(s));
 }
 
-// The baseline replay reached the end of the run. It is used only if it also
-// followed the recorded attempt: an alignment that survives on a different path
-// would measure the windows of a different attempt. Returns false when another
-// alignment is tried first (the level is reset from the start).
+// The baseline replay reached the end of the run.
 bool acceptBaseline(Session& s) {
     if (s.source.openEnd) {
         // A macro that completes the level: the run ends here.
@@ -167,8 +157,7 @@ bool acceptBaseline(Session& s) {
 
 namespace {
 
-// "Frame Counting Complete" popup. The game is paused first so that nothing
-// runs behind the popup; Replay resumes it and plays the counted run.
+// "Frame Counting Complete" popup.
 void showCountingComplete(std::string summary) {
     Loader::get()->queueInMainThread([summary = std::move(summary)] {
         auto* play = PlayLayer::get();
@@ -187,11 +176,15 @@ void showCountingComplete(std::string summary) {
 void finishAnalysis(PlayLayer* play) {
     auto& s = Session::get();
     bool const deep = s.deepMode;
+    bool const borders = s.borderMode;
     // Leave the Complete stage first: toggling practice mode below can reset the level.
     s.stage = Stage::Recording;
     if (deep) {
         s.windows = s.deepBase;
-        finishDeep(s);
+        if (!borders) {
+            finishDeep(s);
+            s.deepCounted = true;
+        }
     } else {
         s.windows = s.planner.results();
         s.edgeUncertain.assign(s.source.events.size(), 0);
@@ -200,6 +193,7 @@ void finishAnalysis(PlayLayer* play) {
     }
     s.dependent.resize(s.source.events.size(), 0);
     s.edgeUncertain.resize(s.source.events.size(), 0);
+    s.otherMarker.resize(s.source.events.size(), 0);
     s.deep.resize(s.source.events.size(), DeepRange{});
     s.sourceSwift = swiftLevelsOf(s.source.events);
     s.hasResults = true;
@@ -241,13 +235,16 @@ void finishAnalysis(PlayLayer* play) {
         if (hasEasierApproach(s, i)) ++easier;
     }
     for (char flag : s.edgeUncertain) uncertain += flag ? 1 : 0;
-    auto summary = deep
+    auto summary = borders
+        ? fmt::format("Hitborders of {} clicks in {} trials.\nThey are shown in the level now (TC > Hitborders to hide them).",
+              s.borders.clicks.size(), s.trialsFinished)
+        : deep
         ? fmt::format("Deep Count: {} checks in {} trials.\n{} clicks depend on the previous click (~, {} with a range), "
               "{} have disconnected windows (-), {} an easier approach (^).\nThe replay explains them at the top right.",
               s.deepJobsTotal, s.trialsFinished, dependent, ranged, disconnected, easier)
         : fmt::format("Measured {} inputs in {} trials.\nShown {}: 1-frame {}, up to 2 frames {}. Marked ~: {}.",
               measured, s.trialsFinished, shown, oneFrame, twoFrames, dependent);
-    if (deep && s.edgeCheckRan)
+    if (deep && !borders && s.edgeCheckRan)
         summary += fmt::format("\nEdge check: {} clicks differed on a re-check (marked ?).", uncertain);
     if (s.source.endKind != RunEnd::Completed)
         summary += "\nThe counted run did not finish the level, so the replay stops where it ended.";
@@ -259,6 +256,10 @@ void finishAnalysis(PlayLayer* play) {
         "replay offset {}", s.trialsConverged, s.checkpointControls, s.checkpointRejections, s.activeOffset());
 
     log::info("{}", summary);
+    if (borders) {
+        playHitborders(play);
+        return;
+    }
     if (queuedCountFinished(play, true, {})) return;
     showCountingComplete(std::move(summary));
 }
@@ -290,9 +291,7 @@ void injectDueInputs(PlayLayer* play, GJBaseGameLayer* layer, Session& s) {
         }
         if (s.stage == Stage::BaselineReplay && s.source.fromMacro) {
             // A macro has no positions: its markers go where the replay makes the input.
-            auto const point = playerPoint(layer, event.player1);
-            s.source.events[s.replayCursor].x = point.x;
-            s.source.events[s.replayCursor].y = point.y;
+            placeEvent(layer, s.source.events[s.replayCursor]);
         }
         ++s.replayCursor;
         s.injecting = true;

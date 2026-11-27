@@ -79,8 +79,7 @@ class $modify(TCEndLayer, EndLevelLayer) {
             return;
         }
 
-        // Same as the Retry button. The game restarts the level a moment later,
-        // and the counting starts right after that restart (queuePendingAnalysis).
+        // Same as the Retry button.
         s.pendingAnalysis = s.previousCompletion;
         this->onReplay(nullptr);
     }

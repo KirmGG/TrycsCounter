@@ -31,20 +31,22 @@ struct InputEvent {
     bool player1 = true;
     float x = 0.f;
     float y = 0.f;
-    // Registered between two physics steps (Click Between Steps). Such an input
-    // cannot be reproduced by an on-step replay.
+    // Registered between two physics steps (Click Between Steps).
     bool betweenSteps = false;
-    // Click Between Frames: the input was applied inside the player update of
-    // physics step `tick`, after `frac` (0..1) of that step had been simulated.
+    // Click Between Frames: the input was applied inside the player update of physics step `tick`.
     bool cbf = false;
     double frac = 0.0;
+    // A dual played by one player: x, y is the lower player, this the other one.
+    bool dual = false;
+    bool otherP2 = false;
+    float ox = 0.f;
+    float oy = 0.f;
 };
 
 struct CheckpointInfo {
     int tick = 0;
     CheckpointObject* object = nullptr;
     // Size of the game's checkpoint list right after this checkpoint was added.
-    // The game may add checkpoints of its own, so positions are tracked by index.
     size_t arrayCount = 0;
 };
 
@@ -54,15 +56,13 @@ struct LiveJob {
     int verdictTick = 0;
 };
 
-// A saved game state taken shortly before a click (Live Counter keeps a short ring of them).
+// A saved game state taken shortly before a click.
 struct LiveSnapshot {
     int tick = 0;
     geode::Ref<CheckpointObject> object;
 };
 
 // Live Counter (trajectory mode): copies of the players taken during the attempt.
-// A measurement simulates a copy forward with the recorded inputs, the way
-// "show trajectory" tools do, instead of reloading the whole level.
 struct TrajSnapshot {
     int tick = 0;
     geode::Ref<PlayerObject> p1;
@@ -80,7 +80,6 @@ struct LiveState {
 };
 
 // One simulated copy of a player inside a live measurement.
-// Activation flags of an orb or pad (m_activated, by player 1, by player 2).
 using ActivationFlags = std::array<bool, 3>;
 
 struct SimRun {
@@ -141,36 +140,24 @@ struct PlayerTrace {
     unsigned flags = 0;   // ground, gravity, game mode, held jump, ... (see playerTrace)
 };
 
-// Both players at the start of a command tick. Used to check that a replay
-// follows the recorded attempt, that a trial started from a practice checkpoint
-// follows the baseline replay exactly, and to see when a moved click has come
-// back onto the baseline path.
+// Both players at the start of a command tick.
 struct TraceState {
     PlayerTrace p1;
     PlayerTrace p2;
     bool dual = false;
     bool valid = false;
-    // Only the positions are known (a bot macro's Frame Fixes): no velocity,
-    // flags, or player 2 unless `dual`.
+    // Only the positions are known: no velocity, flags, or player 2 unless `dual`.
     bool positionsOnly = false;
 };
 
-// Length of the player updates of one physics step, from this raw tick on until
-// the next entry (only changes are stored). Normally constant, but Click Between
-// Frames gives a step more than its length when an input carries a timestamp from
-// before the frame (e.g. the release of the restart click at the level start):
-// the player then moves 1.67 steps in one. Replays repeat the recorded length.
+// Length of the player updates of one physics step, from this raw tick on until the next entry.
 struct StepDt {
     int tick = 0;
     float p1 = 0.f;
     float p2 = 0.f;
 };
 
-// A correction of the player made by the replay (the mod's own "frame fix"):
-// at raw tick `tick` the replay had the player at `from` while the recorded
-// attempt had it at `to`. Small differences like this come from practice
-// checkpoints (they restore the player a little differently than a continuous
-// run) and from bots that set the player's position (xdBot Frame Fixes).
+// A correction of the player made by the replay.
 struct StateFix {
     int tick = 0;
     bool player2 = false;
@@ -183,8 +170,6 @@ struct StateFix {
 };
 
 // A recorded attempt together with how it ended.
-// A practice respawn during the recording: the attempt went on from the
-// checkpoint at raw tick `tick`; the life before it had reached `reached`.
 struct Respawn {
     int tick = 0;
     int reached = 0;
@@ -196,16 +181,14 @@ struct RunRecord {
     RunEnd endKind = RunEnd::Death;
     // Raw ticks where the player touched a hazard but lived on (noclip).
     std::vector<int> hits;
-    // State of the players per raw tick of this attempt: the path replay
-    // corrections put the player back onto.
+    // State of the players per raw tick of this attempt.
     std::vector<TraceState> trace;
     std::vector<StepDt> stepDts;
     // Where the attempt went on from a practice checkpoint.
     std::vector<Respawn> respawns;
     // Corrections the baseline replay needed to follow the attempt (sorted by tick).
     std::vector<StateFix> fixes;
-    // A bot macro: no positions or trace were recorded; the baseline replay
-    // fills in the positions and, while `openEnd`, finds where the run ends.
+    // A bot macro: no positions or trace were recorded.
     bool fromMacro = false;
     bool openEnd = false;
     // X of the Start Pos the attempt began at; -1: the start of the level.
@@ -214,10 +197,7 @@ struct RunRecord {
     bool empty() const { return events.empty(); }
 };
 
-// One re-timed click of a correction chain: a moved click that dies only after
-// the next click is fixed by re-timing that click, and if the run then dies
-// after the click after it, that one is re-timed too (ship and wave players
-// fix a mistake over several clicks).
+// One re-timed click of a correction chain.
 struct AdaptLevel {
     size_t index = 0;     // the re-timed click
     int baseShift = 0;    // shift the candidates are built from (correctionShift)
@@ -226,22 +206,18 @@ struct AdaptLevel {
     int correction = 0;   // shift of the current candidate
 };
 
-// Deep Count result of one click (frames): the smallest and largest window
-// with the previous click at other timings. `broken`: with the previous click
-// moved, this one works neither at its time nor moved along with it.
+// Deep Count result of one click.
 struct DeepRange {
     double lo = 0.0;
     double hi = 0.0;
     bool broken = false;
     // The window the click usually has (typicalWindow), 0 if unknown.
     double typical = 0.0;
-    // Disconnected window: its pieces (frames on the shift axis, earliest
-    // first, more than one) and the step they were measured with.
+    // Disconnected window: its pieces and the step they were measured with.
     double step = 0.0;
     std::vector<WindowSpan> spans;
 
-    // Easier approach: the widest window found with earlier inputs re-timed
-    // (frames, 0: none better) and how ("the press before it 1.50 frames later").
+    // Easier approach: the widest window found with earlier inputs re-timed and how.
     double easier = 0.0;
     std::string easierHow;
 
@@ -249,31 +225,26 @@ struct DeepRange {
     bool disconnected() const { return spans.size() > 1; }
 };
 
-// One measurement of Deep Count: the window of `index` while the previous
-// press `prev` is moved by `prevShift` measurement units (`weight`: how likely
-// a player times the previous click there), or the holes of its window.
+// One measurement of Deep Count.
 struct DeepJob {
     size_t index = 0;
     size_t prev = 0;
     int prevShift = 0;
-    int variant = 0;    // 0: previous click moved, 2: holes, 3: edge check, 4: easier approach, 5: re-measure
+    int variant = 0;    // 0: previous click moved, 2: holes, 3: edge check, 4: easier approach, 5: re-measure,
+                        // 6: hitborders, 7: a dual's lower player alone
     double weight = 1.0;
-    // Variant 0: this click moves along with the previous one (same rhythm),
-    // tried when it does not work at its recorded time any more.
+    // Variant 0: this click moves along with the previous one.
     bool follow = false;
 };
 
-// Edge check: one trial of a measured window again, at its last passing
-// (expect survive) or first failing (expect die) shift.
+// Edge check: one trial of a measured window again, at its last passing or first failing shift.
 struct EdgeCheck {
     int shift = 0;
     bool expectSurvive = true;
     bool early = true;
 };
 
-// Easier approach search of one hard click (Deep Count): the earlier inputs are
-// moved one after another (nearest first) to the edges of their windows; a move
-// that widens the click is kept for the next ones.
+// Easier approach search of one hard click.
 struct ApproachMove {
     size_t input = 0;
     int shift = 0;
@@ -295,12 +266,27 @@ struct DeepSample {
     WindowResult result;
 };
 
-// Replay alignments tried when the baseline replay does not reproduce the
-// recorded run. Values are raw ticks added to the configured offset.
+// Where a player was at a raw tick, in object layer space.
+struct PathPoint {
+    int tick = 0;
+    float x = 0.f;
+    float y = 0.f;
+};
+
+// Make Hitborders: the run's own path and, for every counted click.
+struct Hitborders {
+    std::vector<PathPoint> path1;
+    std::vector<PathPoint> path2;   // the second player of a dual
+    // input: early and late path of player 1, then of player 2 (in a dual)
+    std::map<size_t, std::array<std::vector<PathPoint>, 4>> clicks;
+
+    bool empty() const { return clicks.empty(); }
+};
+
+// Replay alignments tried when the baseline replay does not reproduce the recorded run.
 inline constexpr std::array<int, 5> kAlignmentCandidates = {0, -1, 1, -2, 2};
 
-// Score of an alignment after its baseline replay: died, or the raw tick where it
-// left the recorded path (kAlignmentMatched when it never did).
+// Score of an alignment after its baseline replay.
 inline constexpr int kAlignmentUntried = -2;
 inline constexpr int kAlignmentDied = -1;
 inline constexpr int kAlignmentMatched = std::numeric_limits<int>::max();
@@ -310,19 +296,14 @@ struct Session {
     int levelID = -1;
     std::string levelKey;   // see levelKeyOf: online ID, or a hash of a local level
 
-    // GD does not restore its tick counter (m_tickIndex) when it loads a practice
-    // checkpoint, it keeps counting. The mod remembers the tick of every
-    // checkpoint and keeps its own clock: tick = m_tickIndex + tickOffset.
+    // GD does not restore its tick counter when it loads a practice checkpoint, it keeps counting.
     std::unordered_map<CheckpointObject*, int> checkpointTicks;
-    // What each checkpoint does not restore by itself (setting "Exact checkpoints"),
-    // the checkpoint being loaded, and the orbs and pads of the level.
+    // What each checkpoint does not restore by itself, the checkpoint being loaded.
     std::unordered_map<CheckpointObject*, CheckpointExtra> checkpointExtras;
-    // Macros counted one after another (Macros.cpp): the files still to count
-    // and the name of the one being counted.
+    // Macros counted one after another: the files still to count and the name of the one being counted.
     std::deque<std::filesystem::path> macroQueue;
     std::string queuedMacro;
-    // Training of one click (Training.cpp): the bot plays up to `stopTick`,
-    // then the player tries the click from a practice checkpoint.
+    // Training of one click.
     struct Training {
         bool active = false;
         size_t index = 0;
@@ -338,7 +319,7 @@ struct Session {
     int tickOffset = 0;
     bool resettingFromStart = false;
 
-    // Recording is opt-in: the pause menu button "Start Recording" (or Live Counter) enables it.
+    // Recording is opt-in: the pause menu button "Start Recording" enables it.
     bool recordingEnabled = false;
 
     // Live Counter (practice mode): the window of every click is simulated shortly after it.
@@ -370,51 +351,60 @@ struct Session {
     int trialHitLimit = std::numeric_limits<int>::max();
     // Hits before this tick happen before the moved click and match the attempt.
     int trialHitFrom = 0;
-    // Until this tick a trial must follow the recorded attempt exactly; if it
-    // does not, its practice checkpoint did not restore the level faithfully.
+    // Until this tick a trial must follow the recorded attempt exactly.
     int trialVerifyUntil = std::numeric_limits<int>::min();
-    // Practice checkpoints do not always restore the level exactly (moving
-    // objects, long move triggers). Per checkpoint (raw tick): up to which raw
-    // tick a run from it is known to follow the baseline, and the first raw tick
-    // where a run from it left the baseline. A trial only starts from a
-    // checkpoint that is proven up to the trial's end.
+    // Practice checkpoints do not always restore the level exactly.
     std::map<int, int> checkpointGoodUntil;
     std::map<int, int> checkpointBadFrom;
     int badCheckpointRetries = 0;
-    // The current run only checks a checkpoint: the recorded inputs unchanged,
-    // compared with the baseline up to trialEndTick.
+    // The current run only checks a checkpoint.
     bool verifyingCheckpoint = false;
     int checkpointControls = 0;
-    // Correcting the next click after a moved click that died only after it:
-    // 0 = no correction, k = attempt k of correctionShift.
+    // Correcting the next click after a moved click that died only after it.
     int adaptMode = 0;
     int adaptAfterTick = std::numeric_limits<int>::max();
     int lastProbeDeathTick = 0;
     int deathIgnoreUntilTick = 0;
-    // After every moved input of a trial (raw tick), a trial whose players are
-    // exactly in the baseline state replays the baseline from there on.
+    // After every moved input of a trial.
     int trialConvergeAfter = std::numeric_limits<int>::max();
     int trialConvergedSince = -1;
     int trialsConverged = 0;
-    // The current trial survived only by coming back near the baseline path
-    // ("Back on path"), an approximation.
+    // The current trial survived only by coming back near the baseline path, an approximation.
     bool trialNear = false;
-    // Outcomes (survived) of the normal count's trials that were decided
-    // exactly, by input and shift: the edge check does not repeat them. Kept
-    // with the results until the next count.
+    // Outcomes of the normal count's trials that were decided exactly, by input and shift.
     std::map<std::pair<size_t, int>, bool> exactTrials;
+    // Which player died in a failed trial of (input, shift): true for player 2.
+    std::map<std::pair<size_t, int>, bool> trialDeathP2;
+    bool lastDeathP2 = false;
+    // Deep Count, duals: the player that cannot die while the other one is measured alone.
+    int immunePlayer = 0;
+    std::vector<char> otherMarker;
+    // Deep Count ran on these results (Make Hitborders needs it).
+    bool deepCounted = false;
+    // Make Hitborders: the pass is running, the shifts of every click, the path of the current trial.
+    bool borderMode = false;
+    std::map<size_t, std::vector<int>> borderShifts;
+    std::array<std::vector<PathPoint>, 2> borderTrial;
+    // The farthest shift kept so far per.
+    std::map<std::pair<size_t, int>, int> borderBest;
+    Hitborders borders;
+    // The replay of the hitborders.
+    bool pendingBorderReplay = false;
+    bool borderReplay = false;
+    bool borderReplayRan = false;
+    bool layoutLoad = false;
+    // The trail behind the players while the hitborders are shown.
+    int trailTick = -1;
+    std::array<std::optional<cocos2d::CCPoint>, 2> trailLast;
     int checkpointRejections = 0;
 
-    // Baseline replay: its own trace (the reference every trial is checked
-    // against), the first raw tick where it left the recorded attempt, and the
-    // score of every alignment tried.
+    // Baseline replay: its own trace, the first raw tick where it left the recorded attempt.
     std::vector<TraceState> baselineTrace;
     int baselineDivergeTick = -1;
     std::array<int, kAlignmentCandidates.size()> alignmentScores{};
     bool baselineFinal = false;       // the best alignment was chosen, accept it
     int baselineMismatchTick = -1;    // accepted baseline left the recording here
-    // The failed baseline replay that followed the attempt the longest: what
-    // the error message describes.
+    // The failed baseline replay that followed the attempt the longest: what the error message describes.
     struct BaselineFailure {
         int reach = -1;       // raw tick where it left the attempt (or died)
         int deathTick = -1;
@@ -444,8 +434,7 @@ struct Session {
     // Measurement units per raw tick (kCbfUnitsPerRawTick for Click Between Frames runs).
     int units = 1;
 
-    // Click Between Frames recording: how much of the current physics step the
-    // players have simulated, and the inputs of this step waiting for its total.
+    // Click Between Frames recording.
     int cbfAccTick = std::numeric_limits<int>::min();
     float cbfAcc1 = 0.f;
     float cbfAcc2 = 0.f;
@@ -467,9 +456,7 @@ struct Session {
 
     // "Count Frame Windows" on the end screen waits for the level restart.
     std::optional<RunRecord> pendingAnalysis;
-    // A reset the analysis asked for. It runs between two rendered frames, never
-    // inside a physics step: resetting inside a step lets the game finish that
-    // step on the reset state, which puts the replay one step ahead of its clock.
+    // A reset the analysis asked for.
     enum class PendingReset { None, Level, FromStart };
     PendingReset pendingReset = PendingReset::None;
 
@@ -482,8 +469,7 @@ struct Session {
     cocos2d::CCPoint cbfP1Pos;
     cocos2d::CCPoint cbfP2Pos;
 
-    // State of the players per raw tick of the attempt being recorded and of
-    // the run being counted (the path replay corrections follow).
+    // State of the players per raw tick of the attempt being recorded and of the run being counted.
     std::vector<TraceState> trace;
     std::vector<StepDt> stepDts;     // recording: player step lengths (see StepDt)
     std::vector<TraceState> sourceTrace;
@@ -493,19 +479,13 @@ struct Session {
     bool startFromBeginning = false;
     bool replayDiedAtEnd = false;
     bool baselineRetry = false;
-    // Layout mode (like Eclipse's): while counting, decoration is hidden (its
-    // m_isHide before is kept to put it back) and visual-only triggers do not
-    // fire. layoutOff: this count runs with the full level because the replay
-    // did not match in layout mode.
+    // Layout mode: while counting, decoration is hidden and visual-only triggers do not fire.
     std::vector<std::pair<geode::Ref<GameObject>, bool>> layoutHidden;
     bool layoutActive = false;
     bool layoutOff = false;
     bool wasPracticeMode = false;
 
-    // The attempt, jump and click counters (of the level and the player's
-    // stats) from before a count or a replay: the bot's resets are not the
-    // player's attempts. A replay also runs as a test run, so its completion
-    // and percentage are not saved.
+    // The attempt, jump and click counters from before a count or a replay.
     struct PlayerStats {
         int attempts = 0;
         int jumps = 0;
@@ -538,14 +518,12 @@ struct Session {
     geode::Ref<cocos2d::CCLabelBMFont> progressLabel;
     geode::Ref<cocos2d::CCLabelBMFont> lstarLabel;
     bool hudPrecise = false;        // bucket scheme of the counter (ranges or whole frames)
-    // Inputs at or before this raw tick were passed before the current respawn:
-    // counted and marked without ding or animation.
+    // Inputs at or before this raw tick were passed before the current respawn.
     int displaySilentUntil = std::numeric_limits<int>::min();
     // Window of the last click shown (ms) and L* (sigma/s) up to it.
     double lastShownMs = 0.0;
     double lastShownLStar = 0.0;
-    // Boxes (marker container space) of the rings and texts already placed:
-    // a new marker puts its text where it covers none of them.
+    // Boxes of the rings and texts already placed.
     std::vector<cocos2d::CCRect> markerBoxes;
 
     // Per input of the results: swift level (see swiftLevels) and L* after it.
@@ -554,18 +532,15 @@ struct Session {
     double lstarTotal = 0.0;
     int lstarGeneration = 0;
     bool lstarReady = false;
-    // The baseline replay of the results left the recorded attempt here (-1: never):
-    // windows after it are marked approximate.
+    // The baseline replay of the results left the recorded attempt here.
     int resultsMismatchTick = -1;
     std::string resultsName;        // name of the loaded saved run, if any
-    // "~" per input: a shift of the previous click only survived when this one
-    // was re-timed (found by the normal count, see adaptNext).
+    // "~" per input: a shift of the previous click only survived when this one was re-timed.
     std::vector<char> dependent;
     std::vector<char> edgeUncertain;   // per input: the edge check disagreed ("?")
     std::vector<DeepRange> deep;    // Deep Count per input
 
-    // Deep Count in progress: windows of the normal count, the jobs (done from
-    // the back, the checkpoints are trimmed from the end) and what they found.
+    // Deep Count in progress: windows of the normal count, the jobs and what they found.
     bool deepMode = false;
     std::vector<WindowResult> deepBase;
     std::vector<DeepJob> deepJobs;
@@ -576,8 +551,7 @@ struct Session {
     std::vector<std::optional<WindowResult>> deepHoles;    // per input
     std::vector<double> deepBaseWeight;                    // weight of the recorded timing
     std::map<size_t, ApproachState> approach;              // easier approach search per hard click
-    // Deep Count: the window of each click measured again with the deeper and
-    // wider corrections (the base of its samples, holes and easier approach).
+    // Deep Count: the window of each click measured again with the deeper and wider corrections.
     std::vector<std::optional<WindowResult>> deepRebase;
     // Edge check, the first part of Deep Count (the windows wait in deepBase).
     bool verifyMode = false;
@@ -585,39 +559,32 @@ struct Session {
     bool strictTrials = false;   // no "Back on path"
     std::vector<std::vector<EdgeCheck>> edgeChecks;
     std::vector<std::vector<int>> edgeOutcomes;
-    // Inputs a trial starts from: the recorded ones, or with the previous click
-    // moved for a Deep Count job.
+    // Inputs a trial starts from.
     std::vector<InputEvent> trialBase;
     // Earliest raw tick any input of the current trial was moved from or to.
     int trialEarliestMove = 0;
     // Input re-timed by the correction attempts of the current trial.
     size_t adaptNext = std::string::npos;
-    // Per recorded input: made in a free-flight mode (ship, wave, swing), where
-    // a moved click only has to keep the player alive until the next click and
-    // a moment to react (the player steers all the time).
+    // Per recorded input: made in a free-flight mode.
     std::vector<char> freeFlight;
     // Correction chain of the current trial and the trials it has used.
     std::vector<AdaptLevel> adaptChain;
     int adaptTrials = 0;
     // Click after the last re-timed one: a death after it goes one level deeper.
     size_t adaptAfterIndex = std::string::npos;
-    // Counting skips the drawing work of the level (updateVisibility) while
-    // trials keep matching the baseline; switched off for the count otherwise.
+    // Counting skips the drawing work of the level while trials keep matching the baseline.
     bool skipVisuals = false;
     int skipVisualsRejections = 0;
 
-    // Replay corrections (StateFix): a run of consecutive real corrections
-    // means the replay really went elsewhere; then it stops correcting.
+    // Replay corrections: a run of consecutive real corrections means the replay really went elsewhere.
     int fixRun = 0;
     int fixRunLastTick = -100;
     bool fixesGaveUp = false;
     float fixLargest = 0.f;
-    // Practice recording: after a respawn the held buttons are compared with
-    // the game once (the respawn may release them without an input).
+    // Practice recording: after a respawn the held buttons are compared with the game once.
     bool syncHeldAfterRespawn = false;
 
-    // Live Counter (Exact) simulates with its own slice of the recording: the
-    // counted results of the level are kept here meanwhile and put back after.
+    // Live Counter simulates with its own slice of the recording.
     struct LiveStash {
         RunRecord source;
         int units = 1;
@@ -641,6 +608,11 @@ struct Session {
 
     bool isAnalyzing() const {
         return stage == Stage::BaselineReplay || stage == Stage::Probing;
+    }
+
+    // Training: the bot runs up to the click sped up, behind the counting screen.
+    bool trainingFastForward() const {
+        return training.active && stage == Stage::Replay;
     }
 
     // Real input is blocked and replaced by the recorded one.

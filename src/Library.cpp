@@ -1,6 +1,4 @@
-// The library of counted runs: every level with its saved runs and last count,
-// the stats and graph of a run and its replay. Opened from the TC button in the
-// main menu; the Saved Runs list of the TC menu in a level is the same list.
+// The library of counted runs.
 
 #include "App.hpp"
 #include <Geode/utils/file.hpp>
@@ -18,8 +16,7 @@ struct PendingReplay {
 };
 std::optional<PendingReplay> g_pendingReplay;
 
-// The level of a key on this device, nullptr when it is not here (an online
-// level that was never downloaded, a deleted local level).
+// The level of a key on this device, nullptr when it is not here.
 GJGameLevel* findLevel(std::string const& key) {
     if (key.starts_with("local-")) {
         auto* local = LocalLevelManager::sharedState();
@@ -333,8 +330,7 @@ ScrollLayer* createList(CCNode* parent, float popupWidth, float rowWidth, float 
     return list;
 }
 
-// The runs of one level: the last count and the saved runs. Show (in that
-// level), stats, replay, rename, delete.
+// The runs of one level: the last count and the saved runs.
 class SavedRunsPopup : public geode::Popup {
     static constexpr float kWidth = 440.f;
     static constexpr float kRowWidth = 400.f;
@@ -668,10 +664,7 @@ void openSavedRuns(std::string const& key, std::string const& levelName) {
     if (auto* popup = SavedRunsPopup::create(key, levelName)) popup->show();
 }
 
-// The level of a run started from the library runs: replay the run. Not while
-// the fade from the menu still runs: the intro would go to the fade's scene,
-// which is dropped with it, and the replay would never start. The level pauses
-// first, as when a replay starts from the pause menu.
+// The level of a run started from the library runs: replay the run.
 void startPendingReplay(PlayLayer* play) {
     if (!g_pendingReplay || !play) return;
     if (CCDirector::sharedDirector()->getRunningScene() != play->getParent()) return;

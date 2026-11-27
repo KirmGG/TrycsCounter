@@ -1,17 +1,5 @@
 #pragma once
-// L* (sigma per second), the precision metric of NaN GD's NaNDL list
-// (https://nandl.pages.dev/), base model without nerve, fatigue or CPS terms:
-//
-//   every input i has a window of w_i seconds at time t_i of the attempt.
-//   With timing errors X ~ N(0, 1/L^2) the input passes with
-//       p_i = P(|X| <= w_i / 2) = 1 - erfc(w_i * L / (2 * sqrt 2)),
-//   an attempt that dies at input i costs t_i, a full run costs t_n, so
-//       E[T_C] = (t_n * P(C) + sum_i t_i * r_i * q_i) / P(C)
-//   with r_i the chance to reach input i and q_i = 1 - p_i.
-//   L* is the L for which E[T_C] equals the target (24 hours).
-//
-// Same model as the calculators of NaNDL and Frame Window Counter (C0nscious).
-// Pure C++, no game types: unit-testable.
+// L*, the precision metric of NaN GD's NaNDL list, base model without nerve, fatigue or CPS terms.
 
 #include <algorithm>
 #include <cmath>
@@ -45,9 +33,7 @@ inline double expectedCompletion(std::vector<TimedWindow> const& inputs, size_t 
     return (tn * reach + failTime) / reach;
 }
 
-// L* after every input: result[i] is the precision needed to beat inputs 0..i
-// within `target` seconds. Inputs must be sorted by time. Adding an input never
-// makes a run easier, so the values do not decrease, which bounds each search.
+// L* after every input: result[i] is the precision needed to beat inputs 0..i within `target` seconds.
 inline std::vector<double> prefixLStar(std::vector<TimedWindow> const& inputs, double target = kTargetSeconds) {
     std::vector<double> result(inputs.size(), 0.0);
     double previous = 1e-3;

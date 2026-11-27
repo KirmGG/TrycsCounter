@@ -4,8 +4,7 @@
 
 namespace tc {
 
-// Raw tick of the level clock. For the play layer it stays correct across
-// practice checkpoint loads (see Session::tickOffset).
+// Raw tick of the level clock.
 int currentTick(GJBaseGameLayer* layer) {
     if (!layer) return 0;
     int tick = layer->m_tickIndex;
@@ -130,8 +129,7 @@ int currentLevelID(PlayLayer* layer) {
     return static_cast<int>(layer->m_level->m_levelID.value());
 }
 
-// Position of a player in object layer space. Falls back to player 1 when the
-// second player does not exist (single mode).
+// Position of a player in object layer space.
 CCPoint playerPoint(GJBaseGameLayer* layer, bool player1) {
     if (!layer || !layer->m_objectLayer) return CCPointZero;
     auto player = player1 ? layer->m_player1 : layer->m_player2;
@@ -141,13 +139,46 @@ CCPoint playerPoint(GJBaseGameLayer* layer, bool player1) {
     return layer->m_objectLayer->convertToNodeSpace(world);
 }
 
+// Where the marker of a click goes.
+void placeEvent(GJBaseGameLayer* layer, InputEvent& event) {
+    bool const dual = layer->m_gameState.m_isDualMode && layer->m_player2;
+    bool const twoPlayer = layer->m_levelSettings && layer->m_levelSettings->m_twoPlayerMode;
+    if (!dual || twoPlayer) {
+        auto const point = playerPoint(layer, event.player1);
+        event.x = point.x;
+        event.y = point.y;
+        event.dual = false;
+        return;
+    }
+    auto const p1 = playerPoint(layer, true);
+    auto const p2 = playerPoint(layer, false);
+    bool const p1Lower = p1.y <= p2.y;
+    auto const& lower = p1Lower ? p1 : p2;
+    auto const& other = p1Lower ? p2 : p1;
+    event.x = lower.x;
+    event.y = lower.y;
+    event.dual = true;
+    event.otherP2 = p1Lower;
+    event.ox = other.x;
+    event.oy = other.y;
+}
+
+// The click as its marker shows it (Deep Count may move a dual's marker).
+InputEvent markerEvent(RunView const& run, size_t index) {
+    auto event = run.events[index];
+    if (event.dual && index < run.otherMarker.size() && run.otherMarker[index]) {
+        event.x = event.ox;
+        event.y = event.oy;
+    }
+    return event;
+}
+
 // Raw tick at which a recorded input is injected.
 int injectTick(Session const& s, InputEvent const& event) {
     return std::max(0, event.tick + s.activeOffset());
 }
 
-// Index of the release that belongs to the press at `index` (the next input on
-// the same button), or npos.
+// Index of the release that belongs to the press at `index`, or npos.
 size_t partnerOf(std::vector<InputEvent> const& events, size_t index) {
     if (index >= events.size() || !events[index].down) return std::string::npos;
     for (size_t i = index + 1; i < events.size(); ++i) {
@@ -206,8 +237,7 @@ PlannerConfig plannerConfig(Session const& s, int endTick, RunEnd endKind) {
     config.endKind = endKind;
     config.unitsPerTick = s.units;
     config.relaxNeighbors = true;
-    // Every physics frame of each side is tested outwards from the click (no
-    // holes are skipped); finer steps are bisected inside the last frame only.
+    // Every physics frame of each side is tested outwards from the click.
     int const frameSteps = std::max(1, cfg::kRawTicksPerPhysicsFrame * s.units / std::max(1, s.stepTicks));
     config.coarseSteps = frameSteps;
     config.gallop = cfg::flag("fast-search");
@@ -220,20 +250,18 @@ bool recordingWanted() {
     return Session::get().recordingEnabled || cfg::flag("live-counter");
 }
 
-// Live Counter simulates in practice mode only, where the game itself provides
-// checkpoints that can save and restore the state.
+// Live Counter simulates in practice mode only.
 bool liveMode() {
     return cfg::flag("live-counter") && !Session::get().liveDisabled;
 }
 
-// Live Counter simulates copies of the player (fast, approximate) unless the
-// exact mode that reloads practice checkpoints is selected.
+// Live Counter simulates copies of the player unless the exact mode that reloads practice checkpoints is
+// selected.
 bool trajectoryLive() {
     return cfg::text("live-mode") != "Exact";
 }
 
-// Recording works in normal mode and in practice mode: a practice respawn
-// rewinds the recording to the checkpoint (see TCPlayLayer::resetLevel).
+// Recording works in normal mode and in practice mode.
 Stage idleStage(PlayLayer* play) {
     if (!play) return Stage::Idle;
     return recordingWanted() ? Stage::Recording : Stage::Idle;

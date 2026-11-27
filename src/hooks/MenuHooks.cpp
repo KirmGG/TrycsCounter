@@ -11,8 +11,7 @@ class $modify(TCMenuLayer, MenuLayer) {
         auto* menu = this->getChildByID("bottom-menu");
         auto* sprite = CCSprite::create("tc-menu-button.png"_spr);
         if (!menu || !sprite) return true;
-        // As high as the other buttons of the row (the sprite has their
-        // layout: the same circle size and drop shadow).
+        // As high as the other buttons of the row.
         float size = 46.f;
         for (auto* item : CCArrayExt<CCNode*>(menu->getChildren())) {
             if (item->getContentHeight() > 0.f) {

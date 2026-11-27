@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-project(TrycsFrameWindows VERSION 0.1.2 LANGUAGES CXX)
+project(TrycsFrameWindows VERSION 0.2.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -23,6 +23,7 @@ add_library(${PROJECT_NAME} SHARED
     src/Display.cpp
     src/EdgeCheck.cpp
     src/Graph.cpp
+    src/Hitborders.cpp
     src/LayoutMode.cpp
     src/Library.cpp
     src/LiveCounter.cpp
@@ -49,3 +50,16 @@ endif()
 
 add_subdirectory($ENV{GEODE_SDK} ${CMAKE_CURRENT_BINARY_DIR}/geode)
 setup_geode_mod(${PROJECT_NAME})
+
+# iOS does not load a dylib without a code signature, so it is signed ad hoc
+# before Geode packages it.
+if (IOS)
+    find_program(TC_CODESIGN codesign)
+    if (TC_CODESIGN)
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND ${TC_CODESIGN} --force --sign - --identifier trycs.counter $<TARGET_FILE:${PROJECT_NAME}>
+            COMMENT "Signing the iOS dylib")
+    else()
+        message(WARNING "codesign not found: the iOS dylib stays unsigned and iOS will not load it")
+    endif()
+endif()

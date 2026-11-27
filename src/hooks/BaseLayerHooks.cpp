@@ -11,8 +11,7 @@ class $modify(TCBaseLayer, GJBaseGameLayer) {
         (void)self.setHookPriority("GJBaseGameLayer::getModifiedDelta", Priority::First);
     }
 
-    // While the mod drives the input, real clicks are dropped before Click Between
-    // Frames can turn them into split physics steps.
+    // While the mod drives the input.
     double getModifiedDelta(float dt) {
         auto* play = PlayLayer::get();
         if (play && static_cast<GJBaseGameLayer*>(play) == this && Session::get().drivesInput())
@@ -37,8 +36,6 @@ class $modify(TCBaseLayer, GJBaseGameLayer) {
     }
 
     // Copies collide with blocks, hazards, slopes, orbs, pads and gravity portals.
-    // Orbs and pads get the copy's own activation flags for the step (simulateStep
-    // puts the real ones back afterwards).
     void collisionCheckObjects(PlayerObject* player, gd::vector<GameObject*>* objects, int count, float dt) {
         auto& s = Session::get();
         if (!s.trajSimulating || !objects) {
@@ -138,9 +135,11 @@ class $modify(TCBaseLayer, GJBaseGameLayer) {
                 tracePlayer(play, s.trace, now);
             } else if (s.stage == Stage::BaselineReplay) {
                 traceBaseline(play, s, now);
+                if (s.borderMode) recordBorderBaseline(play, s, now);
             } else if (s.stage == Stage::Probing && !s.liveSim) {
                 verifyTrialPrefix(play, s, now);
                 checkConvergence(play, s, now);
+                if (s.borderMode) recordBorderTrial(play, s, now);
             }
         }
 

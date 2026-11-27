@@ -1,8 +1,5 @@
 #pragma once
-// What a practice checkpoint of GD does not bring back: part of the player's
-// physics state and the used state of orbs and pads. Without it a respawn puts
-// the player back a little differently than playing straight through, and a
-// replay of the attempt (or a trial started from the checkpoint) drifts away.
+// What a practice checkpoint of GD does not bring back.
 
 #include <Geode/Geode.hpp>
 
@@ -12,8 +9,7 @@
 
 namespace tc {
 
-// Plain physics fields of PlayerObject. Game mode, size, speed and gravity are
-// left to the game: it restores them together with their sprites.
+// Plain physics fields of PlayerObject.
 #define TC_PLAYER_FIELDS(X) \
     X(m_wasTeleported) X(m_fixGravityBug) X(m_reverseSync) X(m_yVelocityBeforeSlope) X(m_slopeStartTime) \
     X(m_justPlacedStreak) X(m_maybeLastGroundObject) X(m_lastCollisionBottom) X(m_lastCollisionTop) \

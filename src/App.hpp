@@ -28,12 +28,11 @@ namespace tc {
 
 inline constexpr double kCbfSmallestFactor = std::numeric_limits<float>::min();
 
-// An input may be injected this many raw ticks after its recorded tick, which
-// covers inputs recorded before the first command tick of an attempt.
+// An input may be injected this many raw ticks after its recorded tick.
 inline constexpr int kInjectLateToleranceTicks = 4;
 
-// A trial whose players are back in exactly the baseline state for this long
-// after every moved input replays the rest of the baseline: it survives.
+// A trial whose players are back in exactly the baseline state for this long after every moved input replays
+// the rest of the baseline.
 inline constexpr int kConvergeHoldTicks = 24 * cfg::kRawTicksPerPhysicsFrame;
 
 enum class TraceCheck {
@@ -43,8 +42,7 @@ enum class TraceCheck {
     Near          // convergence within the "Back on path" tolerance
 };
 
-// The results of a counted run as the display reads them: the current results
-// (Session) or a saved run opened from the library.
+// The results of a counted run as the display reads them.
 struct RunView {
     std::vector<InputEvent> const& events;
     std::vector<WindowResult> const& windows;
@@ -52,14 +50,16 @@ struct RunView {
     std::vector<char> const& dependent;
     std::vector<char> const& uncertain;
     std::vector<int> const& swift;
+    std::vector<char> const& otherMarker;
     int mismatchTick = -1;
 
     RunView(Session const& s)
         : events(s.source.events), windows(s.windows), deep(s.deep), dependent(s.dependent),
-          uncertain(s.edgeUncertain), swift(s.sourceSwift), mismatchTick(s.resultsMismatchTick) {}
+          uncertain(s.edgeUncertain), swift(s.sourceSwift), otherMarker(s.otherMarker),
+          mismatchTick(s.resultsMismatchTick) {}
     RunView(saved::SavedRun const& run, std::vector<int> const& swiftLevels)
         : events(run.run.events), windows(run.windows), deep(run.deep), dependent(run.dependent),
-          uncertain(run.uncertain), swift(swiftLevels), mismatchTick(run.mismatchTick) {}
+          uncertain(run.uncertain), swift(swiftLevels), otherMarker(run.otherMarker), mismatchTick(run.mismatchTick) {}
 };
 
 // Common.cpp
@@ -73,6 +73,8 @@ int currentLevelID(PlayLayer* layer);
 float startPosX(PlayLayer* play);
 std::string startMismatch(PlayLayer* play, float startX);
 CCPoint playerPoint(GJBaseGameLayer* layer, bool player1);
+void placeEvent(GJBaseGameLayer* layer, InputEvent& event);
+InputEvent markerEvent(RunView const& run, size_t index);
 int injectTick(Session const& s, InputEvent const& event);
 size_t partnerOf(std::vector<InputEvent> const& events, size_t index);
 bool moveHold();
@@ -129,6 +131,16 @@ void finishDeep(Session& s);
 
 // EdgeCheck.cpp
 bool prepareEdgeChecks(Session& s);
+// Hitborders.cpp
+bool prepareBorderJobs(Session& s);
+void recordBorderBaseline(PlayLayer* play, Session& s, int tick);
+void recordBorderTrial(PlayLayer* play, Session& s, int tick);
+void keepBorderTrial(Session& s, bool survived);
+void clearHitborders(PlayLayer* play);
+void playHitborders(PlayLayer* play);
+void startPendingBorderReplay(PlayLayer* play);
+void drawHitborders(PlayLayer* play);
+void updateHitborders(PlayLayer* play);
 void finishEdgePhase(PlayLayer* play, Session& s);
 void applyEdgeChecks(Session& s);
 
@@ -151,6 +163,7 @@ void checkConvergence(PlayLayer* play, Session& s, int tick);
 
 // LayoutMode.cpp
 bool layoutBlocksTrigger(EffectGameObject* trigger);
+bool layoutSkipsTrigger(int id);
 void hideDecoration(PlayLayer* play);
 bool layoutFallback(Session& s);
 void endAnalysisEnvironment(PlayLayer* play);

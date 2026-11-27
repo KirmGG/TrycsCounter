@@ -1,5 +1,4 @@
-// Bot macros in the GDR formats (.gdr, .gdr.json: xdBot, Mega Hack and others;
-// .gdr2: Eclipse) counted like a recorded attempt.
+// Bot macros in the GDR formats counted like a recorded attempt.
 
 #include "App.hpp"
 #include "Macro.hpp"
@@ -51,8 +50,7 @@ std::pair<std::optional<macro::Macro>, std::string> readMacro(std::filesystem::p
     return macro::macroFromNode(*node);
 }
 
-// The inputs of the macro on the level clock. Inputs that do not change the
-// held state of their button are left out, as in a recording.
+// The inputs of the macro on the level clock.
 std::pair<std::optional<RunRecord>, std::string> runFromMacro(PlayLayer* play, macro::Macro const& m) {
     int const rawTps = cfg::rawTps();
     double const perFrame = rawTps / m.framerate;
@@ -137,8 +135,7 @@ void startMacro(std::filesystem::path const& path) {
     start();
 }
 
-// Starts the next macro of the queue; files that cannot be counted here are
-// skipped with a notification.
+// Starts the next macro of the queue; files that cannot be counted here are skipped with a notification.
 void startNextQueued() {
     auto& s = Session::get();
     auto* play = PlayLayer::get();
@@ -180,9 +177,7 @@ void startNextQueued() {
 
 } // namespace
 
-// A count of the macro queue ended: a counted one is saved under the macro's
-// name, and the next one starts. False when the count was not from the queue
-// or was its last, so the usual message shows.
+// A count of the macro queue ended.
 bool queuedCountFinished(PlayLayer* play, bool counted, std::string const& reason) {
     auto& s = Session::get();
     if (s.queuedMacro.empty()) return false;

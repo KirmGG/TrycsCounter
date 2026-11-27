@@ -6,8 +6,7 @@ namespace tc {
 
 namespace {
 
-// A checkpoint check replays this much further than the trial needs (1 s), so the
-// trials of the clicks before it, which end a bit earlier, are covered too.
+// A checkpoint check replays this much further than the trial needs.
 constexpr int kControlExtraTicks = 480;
 
 } // namespace
@@ -20,7 +19,8 @@ void startProbing(Session& s) {
         s.skipVisualsRejections = 0;
         s.freeFlight = freeFlightInputs(s);
         // The edges first (setting "Check edges"), then the Deep Count jobs.
-        if (s.edgeCheckRan || !prepareEdgeChecks(s)) buildDeepJobs(s);
+        if (s.borderMode) prepareBorderJobs(s);
+        else if (s.edgeCheckRan || !prepareEdgeChecks(s)) buildDeepJobs(s);
         s.trialBase.clear();
         // An empty planner: the first job starts in advanceProbing.
         s.planner.begin({}, plannerConfig(s, s.source.endTick, s.source.endKind));
@@ -32,14 +32,13 @@ void startProbing(Session& s) {
     s.dependent.assign(s.source.events.size(), 0);
     s.deep.clear();
     s.exactTrials.clear();
+    s.trialDeathP2.clear();
+    s.otherMarker.clear();
     s.freeFlight = freeFlightInputs(s);
     s.planner.begin(plannerInputs(s.source.events, s.units, &s.freeFlight), plannerConfig(s, s.source.endTick, s.source.endKind));
 }
 
 // Removes checkpoints from the end of the game's list until `count` remain.
-// `owned` is a checkpoint object the mod added itself (no visual to remove).
-// The game may add checkpoints of its own, so the list is trimmed by size and
-// never assumed to contain only what this mod placed.
 bool trimArrayTo(PlayLayer* play, size_t count, CCObject* owned) {
     auto* array = play->m_checkpointArray;
     if (!array) return count == 0;
@@ -98,8 +97,7 @@ namespace {
 
 enum class TrialBuild { Ok, Skip, LevelExhausted, Exhausted };
 
-// The deeper and wider corrections belong to the Deep Count jobs. The edge
-// check repeats trials of the normal count, so it uses the count's corrections.
+// The deeper and wider corrections belong to the Deep Count jobs.
 bool deepCorrections() {
     auto const& s = Session::get();
     return s.deepMode && !s.verifyMode;
@@ -111,8 +109,7 @@ int adaptDepth() {
     return std::clamp(cfg::integer("adapt-depth"), 1, 6);
 }
 
-// Deep Count lets the player fix a moved click further: deeper chains, every
-// correction up to "deep-adapt-frames" frames around, more trials per shift.
+// Deep Count lets the player fix a moved click further.
 int adaptFrames() {
     return deepCorrections() ? std::clamp(cfg::integer("deep-adapt-frames"), 2, 16) : 4;
 }
@@ -121,13 +118,12 @@ int maxAdaptTrials() {
     return deepCorrections() ? 160 : 40;
 }
 
-// Builds the input list of a trial: the measured input moved (with its release
-// when the whole tap moves) and, for a correction attempt, the clicks of the
-// correction chain re-timed the way a player would fix the mistake.
+// Builds the input list of a trial.
 TrialBuild buildTrial(Session& s, Trial const& trial) {
     auto const& events = s.trialBase.size() == s.source.events.size() ? s.trialBase : s.source.events;
     s.activeTrial = trial;
     s.trialNear = false;
+    for (auto& path : s.borderTrial) path.clear();
     s.trialEndTick = (trial.endTick + s.units - 1) / s.units;
     s.currentTrial = events;
     s.currentTrial[trial.index] = shiftedEvent(events[trial.index], trial.shift, s.units);
@@ -179,8 +175,7 @@ TrialBuild buildTrial(Session& s, Trial const& trial) {
     }
     if (!keepsButtonOrder(events, s.currentTrial)) return TrialBuild::Skip;
 
-    // The last re-timed click must hold until the input after it and the lookahead;
-    // a death after that input may be fixed one level deeper.
+    // The last re-timed click must hold until the input after it and the lookahead.
     size_t const after = following(last);
     s.adaptAfterIndex = after < events.size() ? after : std::string::npos;
     s.adaptAfterTick = after < events.size() ? events[after].tick : std::numeric_limits<int>::max();
@@ -192,13 +187,14 @@ TrialBuild buildTrial(Session& s, Trial const& trial) {
 
 // The current trial is decided: tell the planner and forget the corrections.
 void settleTrial(Session& s, bool survived) {
-    // A moved click that only survives when the next click is re-timed:
-    // the next click depends on the timing of this one ("~").
+    // A moved click that only survives when the next click is re-timed.
     if (survived && !s.adaptChain.empty() && !s.liveSim && s.adaptChain.front().index < s.dependent.size())
         s.dependent[s.adaptChain.front().index] = 1;
     // A death, or a survival without "Back on path", comes out the same every time.
     if (!s.liveSim && !s.deepMode && !(survived && s.trialNear))
         s.exactTrials[{s.activeTrial.index, s.activeTrial.shift}] = survived;
+    if (!s.liveSim && !s.deepMode && !survived) s.trialDeathP2[{s.activeTrial.index, s.activeTrial.shift}] = s.lastDeathP2;
+    keepBorderTrial(s, survived);
     s.planner.report(survived);
     s.adaptChain.clear();
     s.adaptTrials = 0;
@@ -219,9 +215,7 @@ void advanceProbing(PlayLayer* play, Session& s) {
     s.verifyingCheckpoint = false;
     if (s.pendingOutcome != ProbeOutcome::None) {
         bool const died = s.pendingOutcome == ProbeOutcome::Died;
-        // Died only after the next click: a player would fix the mistake with
-        // that click, and on ship or wave with the clicks after it as well.
-        // Re-time them one after another (see correctionShift, AdaptLevel).
+        // Died only after the next click.
         bool handled = false;
         if (died && !s.liveSim && adaptClicks() && s.activeTrial.shift != 0 && s.adaptTrials < maxAdaptTrials()) {
             bool const later = s.lastProbeDeathTick >= s.adaptAfterTick && s.adaptAfterIndex != std::string::npos;
@@ -277,8 +271,7 @@ void advanceProbing(PlayLayer* play, Session& s) {
     }
     auto const* trial = &s.activeTrial;
 
-    // The trial can only come back onto the baseline path after every input it
-    // moved, and it follows the baseline up to the first one.
+    // The trial can only come back onto the baseline path after every input it moved.
     s.trialConvergedSince = -1;
     s.trialConvergeAfter = std::numeric_limits<int>::min();
     s.trialEarliestMove = std::min(s.source.events[trial->index].tick, s.currentTrial[trial->index].tick);
@@ -292,8 +285,7 @@ void advanceProbing(PlayLayer* play, Session& s) {
     }
     if (s.trialConvergeAfter != std::numeric_limits<int>::min()) s.trialConvergeAfter += std::max(0, s.activeOffset());
 
-    // Noclip run: until the next hazard the recorded attempt touched, a moved
-    // click must not touch one either; after it nothing can be judged.
+    // Noclip run: until the next hazard the recorded attempt touched, a moved click must not touch one either.
     s.trialHitLimit = std::numeric_limits<int>::max();
     {
         int const earliest = s.trialEarliestMove;
@@ -322,12 +314,7 @@ void advanceProbing(PlayLayer* play, Session& s) {
         return;
     }
 
-    // The checkpoint must reproduce the baseline (the recorded inputs replayed
-    // from the level start) for the whole trial, not only up to the moved click:
-    // a moving object restored at the wrong place shows up only when the player
-    // reaches it. Otherwise the recorded inputs are first replayed from the
-    // checkpoint as they are and compared with the baseline, a bit further than
-    // needed so that the trials of the earlier clicks are covered too.
+    // The checkpoint must reproduce the baseline for the whole trial, not only up to the moved click.
     if (!s.liveSim && !s.checkpoints.empty() && !s.baselineTrace.empty()) {
         int const checkpoint = s.checkpoints.back().tick;
         int const needed = std::min(s.trialEndTick, s.trialHitLimit);
@@ -346,11 +333,10 @@ void advanceProbing(PlayLayer* play, Session& s) {
     }
 }
 
-// Arms the replay of the current event list from the newest checkpoint (or the
-// level start) and re-presses the buttons that are held at that point.
+// Arms the replay of the current event list from the newest checkpoint and re-presses the buttons that are held
+// at that point.
 void beginSegment(PlayLayer* play, Session& s) {
-    // A replay from the level start has no checkpoint boundary, so tick 0 is a
-    // valid input tick and must not be skipped.
+    // A replay from the level start has no checkpoint boundary.
     bool const hasCheckpoint = !s.checkpoints.empty();
     int const startTick = hasCheckpoint ? s.checkpoints.back().tick : std::numeric_limits<int>::min();
     if (hasCheckpoint && currentTick(play) != startTick) {
@@ -368,8 +354,7 @@ void beginSegment(PlayLayer* play, Session& s) {
     }
     s.lastInjectedTick = -1;
     if (s.stage == Stage::BaselineReplay) {
-        // A new baseline run (another alignment) records a new reference trace
-        // and its own corrections.
+        // A new baseline run records a new reference trace and its own corrections.
         s.baselineTrace.clear();
         s.baselineDivergeTick = -1;
         s.source.fixes.clear();
@@ -379,8 +364,7 @@ void beginSegment(PlayLayer* play, Session& s) {
         s.fixLargest = 0.f;
     }
 
-    // Buttons held at the start of the segment: from the events before the checkpoint,
-    // or, for a live simulation whose events start after its saved state, from the slice start.
+    // Buttons held at the start of the segment.
     std::map<std::pair<int, bool>, bool> held = s.liveSim ? s.liveAnchorHeld : std::map<std::pair<int, bool>, bool>{};
     for (size_t i = 0; i < s.replayCursor; ++i) held[{events[i].button, events[i].player1}] = events[i].down;
 
@@ -396,9 +380,7 @@ void beginSegment(PlayLayer* play, Session& s) {
         s.replayCursor < events.size() ? events[s.replayCursor].tick : -1, s.activeOffset());
 }
 
-// Click Between Frames inputs are replayed by the mod itself. CBF's Physics Bypass
-// ties the number of physics steps to the real frame time, which a sped-up
-// replay cannot reproduce.
+// Click Between Frames inputs are replayed by the mod itself.
 void warnAboutCbf() {
     static bool warned = false;
     if (warned) return;
@@ -415,9 +397,7 @@ namespace {
 constexpr int kRandomTriggerID = 1912;
 constexpr int kAdvancedRandomTriggerID = 2068;
 
-// Random triggers pick differently in every attempt: the replay may not repeat
-// the run. Their seed cannot be fixed on Windows (GD keeps it in a global that
-// Geode does not expose), so the player is warned before the count.
+// Random triggers pick differently in every attempt: the replay may not repeat the run.
 void warnAboutRandomTriggers(PlayLayer* play) {
     if (!play->m_objects) return;
     int count = 0;
@@ -459,10 +439,13 @@ std::string startAnalysis(PlayLayer* play, RunRecord run, bool deep) {
     s.recordingDeathTick = -1;
     s.deepMode = deep;
     s.edgeCheckRan = false;
+    clearHitborders(play);
+    if (!s.borderMode) s.borders = {};
     if (deep) {
         // The results stay: Deep Count only adds to them, and a stopped one changes nothing.
         s.deepBase = s.windows;
     } else {
+        s.deepCounted = false;
         s.hasResults = false;
         s.windows.clear();
         s.dependent.clear();
@@ -487,8 +470,7 @@ std::string startAnalysis(PlayLayer* play, RunRecord run, bool deep) {
     return {};
 }
 
-// "Count Frame Windows" on the end screen: the game restarts the level a moment
-// after its Retry button, so the analysis starts after that restart.
+// "Count Frame Windows" on the end screen: the game restarts the level a moment after its Retry button.
 void queuePendingAnalysis() {
     auto& s = Session::get();
     if (!s.pendingAnalysis) return;

@@ -48,6 +48,9 @@ saved::SavedRun currentRunData(PlayLayer* play, std::string const& name) {
     data.mismatchTick = s.resultsMismatchTick;
     data.dependent = s.dependent;
     data.uncertain = s.edgeUncertain;
+    data.otherMarker = s.otherMarker;
+    data.deepCounted = s.deepCounted;
+    data.borders = s.borders;
     data.deep = s.deep;
     return data;
 }
@@ -78,8 +81,7 @@ void saveLastCount(PlayLayer* play) {
         log::error("Could not keep the last count: {}", result.unwrapErr());
 }
 
-// The results shown when a level opens: the last count when it is newer than
-// the newest saved run, else that saved run.
+// The results shown when a level opens.
 void loadLevelResults(PlayLayer* play) {
     auto& s = Session::get();
     auto const runs = saved::list(s.levelKey);
@@ -96,8 +98,7 @@ void loadLevelResults(PlayLayer* play) {
 
 namespace {
 
-// Makes a saved run the current results of the level: its markers show in
-// attempts and it can be replayed.
+// Makes a saved run the current results of the level.
 void applySavedRun(PlayLayer* play, saved::SavedRun data) {
     auto& s = Session::get();
     s.source = std::move(data.run);
@@ -116,10 +117,14 @@ void applySavedRun(PlayLayer* play, saved::SavedRun data) {
     s.resultsMismatchTick = data.mismatchTick;
     s.dependent = std::move(data.dependent);
     s.edgeUncertain = std::move(data.uncertain);
+    s.otherMarker = std::move(data.otherMarker);
+    s.deepCounted = data.deepCounted;
+    s.borders = std::move(data.borders);
     s.deep = std::move(data.deep);
     s.exactTrials.clear();
     s.dependent.resize(s.source.events.size(), 0);
     s.edgeUncertain.resize(s.source.events.size(), 0);
+    s.otherMarker.resize(s.source.events.size(), 0);
     s.deep.resize(s.source.events.size(), DeepRange{});
     s.sourceSwift = swiftLevelsOf(s.source.events);
     resetDisplay(play);

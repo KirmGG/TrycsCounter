@@ -6,11 +6,7 @@ namespace tc {
 
 namespace {
 
-// Like Eclipse's layout mode: nothing is taken out of the level. While counting,
-// decoration is hidden and visual-only triggers (colours, pulse, alpha, shake,
-// gradients, background and ground changes) do not fire, so the game spends no
-// time on them. The groups, sections and positions of every object stay as
-// they are, and at the end every object gets its own hide flag back.
+// Like Eclipse's layout mode: nothing is taken out of the level.
 
 // Triggers that only change how the level looks.
 bool isVisualTrigger(int id) {
@@ -31,6 +27,10 @@ bool isVisualTrigger(int id) {
 }
 
 } // namespace
+
+bool layoutSkipsTrigger(int id) {
+    return isVisualTrigger(id);
+}
 
 bool layoutBlocksTrigger(EffectGameObject* trigger) {
     auto const& s = Session::get();
@@ -67,8 +67,7 @@ void restoreDecoration(PlayLayer* play) {
 
 } // namespace
 
-// The baseline replay did not follow the attempt with the decoration switched
-// off: put it back and replay again with the full level (same alignment).
+// The baseline replay did not follow the attempt with the decoration switched off.
 bool layoutFallback(Session& s) {
     if (!s.layoutActive) return false;
     restoreDecoration(PlayLayer::get());
@@ -85,6 +84,8 @@ void endAnalysisEnvironment(PlayLayer* play) {
     s.injecting = false;
     s.pendingOutcome = ProbeOutcome::None;
     s.deepMode = false;
+    s.immunePlayer = 0;
+    s.borderMode = false;
     s.deepJobs.clear();
     s.deepJobActive = false;
     s.verifyMode = false;

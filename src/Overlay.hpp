@@ -1,8 +1,5 @@
 #pragma once
 // Everything the player sees and hears: click markers, the counter HUD and the ding.
-// The look follows NaN GD's frame window counter videos: a black-outlined ring
-// at the click with its window next to it, and a counter in the top-left corner
-// whose numbers pulse and glow when a click is added.
 
 #include <Geode/Geode.hpp>
 
@@ -29,9 +26,10 @@ inline constexpr int kMarkerBodyTag = 0x53;
 inline constexpr int kFadeAction = 0x54;
 inline constexpr int kNoteTag = 0x7F35;
 inline constexpr int kTitleTag = 0x7F36;
+inline constexpr int kBorderTag = 0x7F38;
 
-// One colour per counter bucket, from the hardest (0-1 / 1) to the widest.
-inline constexpr std::array<cocos2d::ccColor3B, kBucketCount> kBucketColors = {{
+// Counter colours, NaN GD style: fractions of a frame from 0-1 up, whole frames from 1 up.
+inline constexpr std::array<cocos2d::ccColor3B, kBucketCount> kPreciseColors = {{
     {255, 112, 160},   // 0-1   pink
     {255, 84, 72},     // 1-2   red
     {255, 166, 82},    // 2-3   orange
@@ -42,6 +40,50 @@ inline constexpr std::array<cocos2d::ccColor3B, kBucketCount> kBucketColors = {{
     {122, 124, 255},   // <10   blue
     {186, 140, 255},   // <=max lavender
 }};
+inline constexpr std::array<cocos2d::ccColor3B, 7> kFrameColors = {{
+    {255, 84, 72},     // 1     red
+    {255, 166, 82},    // 2     orange
+    {255, 236, 112},   // 3     yellow
+    {255, 255, 255},   // 4     white
+    {132, 236, 120},   // 5-6   green
+    {104, 178, 255},   // 7-8   light blue
+    {122, 124, 255},   // <=max blue
+}};
+
+inline cocos2d::ccColor3B bucketColor(size_t index, bool precise) {
+    if (precise) return kPreciseColors[std::min(index, kPreciseColors.size() - 1)];
+    return kFrameColors[std::min(index, kFrameColors.size() - 1)];
+}
+
+inline cocos2d::ccColor3B bucketColor(size_t index) {
+    return bucketColor(index, Session::get().hudPrecise);
+}
+
+// Colour of a marker, blended between the middles of the buckets around it.
+inline cocos2d::ccColor3B windowColor(double frames, bool precise) {
+    size_t const n = bucketCount(precise);
+    int const maxFrames = cfg::maxDisplayFrames();
+    auto middle = [&](size_t i) {
+        auto const [lo, hi] = tc::bucketBounds(i, precise, maxFrames);
+        return (lo + hi) / 2.0;
+    };
+    if (frames <= middle(0)) return bucketColor(0, precise);
+    for (size_t i = 1; i < n; ++i) {
+        double const at = middle(i);
+        if (frames > at) continue;
+        double const from = middle(i - 1);
+        double const f = (frames - from) / (at - from);
+        auto mix = [f](GLubyte a, GLubyte b) { return static_cast<GLubyte>(std::lround(a + (b - a) * f)); };
+        auto const a = bucketColor(i - 1, precise);
+        auto const b = bucketColor(i, precise);
+        return {mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b)};
+    }
+    return bucketColor(n - 1, precise);
+}
+
+inline cocos2d::ccColor3B windowColor(double frames) {
+    return windowColor(frames, Session::get().hudPrecise);
+}
 
 inline constexpr float kHudScale = 0.5f;
 inline constexpr float kHudLine = 16.5f;
@@ -55,8 +97,7 @@ inline cocos2d::ccColor3B lighten(cocos2d::ccColor3B c, float amount) {
     return {mix(c.r), mix(c.g), mix(c.b)};
 }
 
-// A click is shown (and counted, and dinged) only when its window was measured
-// and is not wider than the configured display limit.
+// A click is shown only when its window was measured and is not wider than the configured display limit.
 inline bool isShown(InputEvent const& event, WindowResult const& result) {
     if (!result.valid || result.exceeded) return false;
     if (!event.down && !cfg::flag("show-releases")) return false;
@@ -84,9 +125,7 @@ inline std::string const& dingPath() {
     return path;
 }
 
-// The sound of a click: "Hardest click sound" up to its window size, "Hard
-// click sound" up to its own, otherwise "Click sound". One that is not set
-// falls back to the next wider one, and in the end to the built-in ding.
+// The sound of a click.
 inline std::string soundFor(double frames) {
     std::vector<char const*> keys;
     if (frames <= cfg::real("sound-hardest-below") + 1e-6) keys.push_back("sound-hardest");
@@ -145,10 +184,7 @@ inline cocos2d::CCTexture2D* glowTexture() {
 
 // ---- Click markers -----------------------------------------------------------
 
-// The markers live in the UI layer, above every object, effect and shader of the
-// level (in the object layer, decoration of some levels covered them), and
-// follow the object layer through syncMarkers: their positions stay level
-// coordinates.
+// The markers live in the UI layer, above every object, effect and shader of the level.
 inline cocos2d::CCNode* markerContainer(PlayLayer* play) {
     if (!play || !play->m_objectLayer || !play->m_uiLayer) return nullptr;
     auto* node = play->m_uiLayer->getChildByTag(kMarkerTag);
@@ -161,8 +197,7 @@ inline cocos2d::CCNode* markerContainer(PlayLayer* play) {
     return node;
 }
 
-// Gives the marker container the object layer's transform (camera move, zoom,
-// rotation, mirror) as seen from the UI layer. Called every frame.
+// Gives the marker container the object layer's transform as seen from the UI layer.
 inline void syncMarkers(PlayLayer* play) {
     auto* container = markerContainer(play);
     if (!container) return;
@@ -172,7 +207,14 @@ inline void syncMarkers(PlayLayer* play) {
 
 inline void clearMarkers(PlayLayer* play) {
     Session::get().markerBoxes.clear();
-    if (auto* container = markerContainer(play)) container->removeAllChildrenWithCleanup(true);
+    // The hitborders stay: they do not change with the attempt.
+    if (auto* container = markerContainer(play)) {
+        auto* children = container->getChildren();
+        for (unsigned i = children ? children->count() : 0; i-- > 0;) {
+            auto* node = static_cast<cocos2d::CCNode*>(children->objectAtIndex(i));
+            if (node->getTag() != kBorderTag) container->removeChild(node, true);
+        }
+    }
     if (play && play->m_uiLayer) play->m_uiLayer->removeChildByTag(kNoteTag, true);
 }
 
@@ -182,10 +224,7 @@ inline float overlapArea(cocos2d::CCRect const& a, cocos2d::CCRect const& b) {
     return w > 0.f && h > 0.f ? w * h : 0.f;
 }
 
-// Where the text of a marker goes: to the left of the ring like NaN GD, unless
-// that covers the ring or text of a nearby marker. Then anywhere around the
-// ring, turning from the left both ways in 15 degree steps, and if all of that
-// is taken, the same a little further out. Failing that, the least covered place.
+// Where the text of a marker goes.
 inline cocos2d::CCPoint placeText(cocos2d::CCPoint center, float radius, cocos2d::CCSize text) {
     auto& boxes = Session::get().markerBoxes;
     float const w = text.width;
@@ -221,14 +260,12 @@ inline cocos2d::CCPoint placeText(cocos2d::CCPoint center, float radius, cocos2d
     return best;
 }
 
-// The marker of one click: a black-outlined ring in the colour of its bucket
-// (`frames`), the window `value` (with its marks) beside it and optionally the
-// time in ms below.
+// The marker of one click.
 inline void showMarkerText(cocos2d::CCNode* container, InputEvent const& event, double frames, bool capped,
     std::string const& value) {
     if (!container) return;
 
-    auto const color = kBucketColors[bucketOf(frames)];
+    auto const color = windowColor(frames);
     float const scale = std::clamp(cfg::real("marker-scale"), 0.3f, 3.f);
     float const radius = (event.down ? 10.5f : 7.5f) * scale;
 
@@ -299,8 +336,7 @@ inline void showMarker(PlayLayer* play, InputEvent const& event, WindowResult co
 
 // ---- Notes (Deep Count) ----------------------------------------------------------
 
-// A line of a note: plain text in white, "{2.20}" as "(2.20)" in the colour of
-// its bucket, like NaN GD's explanations at the top right.
+// A line of a note.
 inline cocos2d::CCNode* noteLine(std::string const& line, float scale) {
     auto* row = cocos2d::CCNode::create();
     float x = 0.f;
@@ -329,15 +365,14 @@ inline cocos2d::CCNode* noteLine(std::string const& line, float scale) {
         add(line.substr(pos, open - pos), {240, 240, 240});
         auto const value = line.substr(open + 1, close - open - 1);
         double const frames = geode::utils::numFromString<double>(value).unwrapOr(0.0);
-        add("(" + value + ")", kBucketColors[bucketOf(frames)]);
+        add("(" + value + ")", windowColor(frames));
         pos = close + 1;
     }
     row->setContentSize({x, height});
     return row;
 }
 
-// Shows the note of a click at the top right. It starts fading at once and is
-// gone after "Note fade"; a new note replaces it.
+// Shows the note of a click at the top right.
 inline void showNote(PlayLayer* play, std::vector<std::string> const& lines, bool precise) {
     (void)precise;
     if (!play || !play->m_uiLayer || lines.empty()) return;
@@ -367,8 +402,7 @@ inline void showNote(PlayLayer* play, std::vector<std::string> const& lines, boo
     play->m_uiLayer->addChild(note, 100001);
 }
 
-// Mirror portals (and other camera flips) mirror the object layer, which would
-// mirror the text of the markers too: flip the markers back so they stay readable.
+// Mirror portals mirror the object layer, which would mirror the text of the markers too.
 inline void orientMarkers(PlayLayer* play) {
     syncMarkers(play);
     auto* container = markerContainer(play);
@@ -381,6 +415,7 @@ inline void orientMarkers(PlayLayer* play) {
         else sy = -1.f;
     }
     for (auto* node : geode::cocos::CCArrayExt<cocos2d::CCNode*>(container->getChildren())) {
+        if (node->getTag() == kBorderTag) continue;
         if (node->getScaleX() != sx) node->setScaleX(sx);
         if (node->getScaleY() != sy) node->setScaleY(sy);
     }
@@ -401,8 +436,7 @@ inline void setLabelText(cocos2d::CCLabelBMFont* label, std::string const& text)
     if (label && std::string(label->getString()) != text) label->setString(text.c_str());
 }
 
-// The window of the last click (ms and Hz), L* so far and how much of the run's
-// total L* that is (the level progress while no L* is known).
+// The window of the last click, L* so far and how much of the run's total L* that is.
 inline void updateHudStats(PlayLayer* play) {
     auto& s = Session::get();
     if (s.msLabel) {
@@ -432,10 +466,7 @@ inline void flashLastClick() {
     }
 }
 
-// A white line of `width` points around the digits of `label`, transparent
-// inside: white copies of the text all around it, then the text itself cut
-// out. The game fonts have a dark border in the glyphs, so the copies are drawn
-// from the glyph shapes only (alpha), not their colours.
+// A white line of `width` points around the digits of `label`, transparent inside.
 inline cocos2d::CCSprite* textOutline(cocos2d::CCLabelBMFont* label, float width) {
     auto* copy = cocos2d::CCLabelBMFont::create(label->getString(), label->getFntFile());
     if (!copy) return nullptr;
@@ -470,13 +501,12 @@ inline cocos2d::CCSprite* textOutline(cocos2d::CCLabelBMFont* label, float width
     return sprite;
 }
 
-// A click was added to a bucket: its number keeps its size and flashes white,
-// a white outline of it grows from its centre and fades, and a halo glows behind.
+// A click was added to a bucket.
 inline void pulseBucket(size_t index) {
     auto& s = Session::get();
     if (index >= s.countLabels.size() || !s.countLabels[index]) return;
     auto* label = s.countLabels[index].data();
-    auto const color = kBucketColors[index];
+    auto const color = bucketColor(index);
     // The new count, so the outline below copies it rather than the old one.
     setLabelText(label, std::to_string(s.visibleCounts[index]));
 
@@ -495,8 +525,7 @@ inline void pulseBucket(size_t index) {
     cocos2d::CCPoint const center{label->getPositionX() + (0.5f - anchor.x) * size.width,
         label->getPositionY() + (0.5f - anchor.y) * size.height};
 
-    // The outline: a copy of the number drawn as a white line around its digits,
-    // empty inside, growing from the number and fading out.
+    // The outline: a copy of the number drawn as a white line around its digits, empty inside.
     if (auto* outline = textOutline(label, 1.5f)) {
         outline->setPosition(center);
         outline->setBlendFunc({GL_SRC_ALPHA, GL_ONE});
@@ -530,13 +559,10 @@ inline void pulseBucket(size_t index) {
         cocos2d::CCRemoveSelf::create(), nullptr));
 }
 
-// Black screen with a notice while the frame windows are counted. The level
-// itself is hidden, so the game draws nothing of it and the time goes to counting.
-// The stage line, a progress bar (the level's own bar sprites), the time left
-// and the trials done.
+// Black screen with a notice while the frame windows are counted.
 inline void setCountingScreen(PlayLayer* play, bool visible, std::string const& status = {},
                               double fraction = 0.0, std::string const& timeLeft = {},
-                              std::string const& trials = {}) {
+                              std::string const& trials = {}, std::string const& title = "COUNTING FRAME WINDOWS") {
     if (!play) return;
     auto* scene = play->getParent();
     if (!scene) return;
@@ -612,6 +638,7 @@ inline void setCountingScreen(PlayLayer* play, bool visible, std::string const& 
             if (std::string(label->getString()) != text) label->setString(text.c_str());
         }
     };
+    setText(1, title);
     setText(2, status);
     setText(4, timeLeft);
     setText(5, trials);
@@ -623,9 +650,7 @@ inline void setCountingScreen(PlayLayer* play, bool visible, std::string const& 
     }
 }
 
-// "TrycsCounter" under the level percentage at the top, half transparent, like
-// NaN GD's "NaN Counter". Shown with the counter; follows the percentage label
-// (it moves with the progress bar settings), or the top middle without one.
+// "TrycsCounter" under the level percentage at the top, half transparent, like NaN GD's "NaN Counter".
 inline void placeCounterTitle(PlayLayer* play) {
     if (!play || !play->m_uiLayer) return;
     auto* title = static_cast<cocos2d::CCLabelBMFont*>(play->m_uiLayer->getChildByTag(kTitleTag));
@@ -668,8 +693,7 @@ inline void setHudVisible(PlayLayer* play, bool visible) {
     }
 }
 
-// Bucket name with its colon. "<=12" is written "<12" and gets a bar under
-// "<" (addLessEqualBar): the game fonts have no "≤" glyph.
+// Bucket name with its colon.
 inline bool isLessEqual(std::string const& name) {
     return name.rfind("<=", 0) == 0;
 }
@@ -681,8 +705,7 @@ inline cocos2d::CCLabelBMFont* bucketTextLabel(std::string const& name, cocos2d:
     return label;
 }
 
-// The bar of "≤": a sibling of the label (a font label only takes glyph
-// sprites as children), right under its first glyph.
+// The bar of "≤": a sibling of the label, right under its first glyph.
 inline void addLessEqualBar(cocos2d::CCNode* parent, cocos2d::CCLabelBMFont* label, cocos2d::ccColor3B color) {
     if (!parent || !label || label->getChildrenCount() == 0) return;
     auto* glyph = geode::cast::typeinfo_cast<cocos2d::CCSprite*>(label->getChildren()->objectAtIndex(0));
@@ -711,9 +734,7 @@ inline void createCounterHud(PlayLayer* play) {
     panel->setID("counter"_spr);
     play->m_uiLayer->addChild(panel, 100000);
 
-    // Rows from the widest bucket at the top to the hardest one. On the left:
-    // "name: count" from the edge; on the right the counts are right-aligned
-    // at the edge and the names right-aligned before a column for them.
+    // Rows from the widest bucket at the top to the hardest one.
     auto const labels = tc::bucketLabels(cfg::maxDisplayFrames(), s.hudPrecise);
     bool const right = cfg::hudRight();
     float const edge = right ? size.width - 6.f : 6.f;
@@ -725,9 +746,12 @@ inline void createCounterHud(PlayLayer* play) {
         probe->setScale(kHudScale);
         countColumn = probe->getScaledContentSize().width;
     }
+    size_t const rows = bucketCount(s.hudPrecise);
+    // The replay of the hitborders shows only the coloured counts.
+    bool const countsOnly = s.borderReplay;
     std::array<cocos2d::CCLabelBMFont*, kBucketCount> texts{};
-    for (size_t i = 0; i < kBucketCount; ++i) {
-        auto* label = bucketTextLabel(labels[i], kBucketColors[i]);
+    for (size_t i = 0; i < rows && !countsOnly; ++i) {
+        auto* label = bucketTextLabel(labels[i], bucketColor(i));
         if (!label) continue;
         label->setScale(kHudScale);
         label->setAnchorPoint({ax, 1.f});
@@ -735,19 +759,19 @@ inline void createCounterHud(PlayLayer* play) {
         texts[i] = label;
     }
     float const textX = right ? edge - countColumn - 5.f : edge;
-    float const countX = right ? edge : edge + textWidth + 5.f;
-    for (size_t i = 0; i < kBucketCount; ++i) {
-        float const y = top - static_cast<float>(kBucketCount - 1 - i) * kHudLine;
+    float const countX = right || countsOnly ? edge : edge + textWidth + 5.f;
+    for (size_t i = 0; i < rows; ++i) {
+        float const y = top - static_cast<float>(rows - 1 - i) * kHudLine;
         if (auto* label = texts[i]) {
             label->setPosition({textX, y});
             panel->addChild(label, 2);
-            if (isLessEqual(labels[i])) addLessEqualBar(panel, label, kBucketColors[i]);
+            if (isLessEqual(labels[i])) addLessEqualBar(panel, label, bucketColor(i));
             s.bucketTextLabels[i] = label;
         }
         if (auto* count = cocos2d::CCLabelBMFont::create("0", "bigFont.fnt")) {
             count->setScale(kHudScale);
             count->setAnchorPoint({ax, 1.f});
-            count->setColor(kBucketColors[i]);
+            count->setColor(bucketColor(i));
             count->setPosition({countX, y});
             panel->addChild(count, 2);
             s.countLabels[i] = count;
@@ -755,8 +779,9 @@ inline void createCounterHud(PlayLayer* play) {
     }
 
     // Window of the last click, in ms and as a rate.
-    float y = top - static_cast<float>(kBucketCount) * kHudLine;
+    float y = top - static_cast<float>(rows) * kHudLine;
     for (auto* target : {&s.msLabel, &s.hzLabel}) {
+        if (countsOnly) break;
         if (auto* label = cocos2d::CCLabelBMFont::create("", "bigFont.fnt")) {
             label->setScale(kHudScale);
             label->setAnchorPoint({ax, 1.f});
@@ -773,7 +798,7 @@ inline void createCounterHud(PlayLayer* play) {
     stats->setTag(kStatsTag);
     stats->setID("stats"_spr);
     play->m_uiLayer->addChild(stats, 100000);
-    if (cfg::flag("show-lstar")) {
+    if (cfg::flag("show-lstar") && !countsOnly) {
         float bottom = 5.f;
         for (auto* target : {&s.lstarLabel, &s.progressLabel}) {
             if (auto* label = cocos2d::CCLabelBMFont::create("", "bigFont.fnt")) {

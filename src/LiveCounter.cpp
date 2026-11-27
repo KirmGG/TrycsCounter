@@ -17,14 +17,7 @@ constexpr int kTrajMaxTrials = 400;
 
 } // namespace
 
-//
-// The window of a click is decided by simulating shifted copies of it, and that
-// needs the gameplay after the click. So the verdict is made shortly after the
-// click (lookahead + largest shift) in one synchronous burst: the real attempt
-// is saved, the shifted trials run from a game state saved shortly before the
-// click through the same machinery as the full analysis, then the real attempt
-// is loaded back. The saved states are taken every few frames into a short ring,
-// so a simulation only covers about half a second of gameplay.
+// The window of a click is decided by simulating shifted copies of it.
 
 void captureLiveSnapshot(PlayLayer* play) {
     auto& s = Session::get();
@@ -204,16 +197,8 @@ void startLiveProbe(PlayLayer* play, LiveJob const& job) {
     play->resetLevel();   // loads the saved state and arms the control trial
 }
 
-//
-// Like "show trajectory", but in step with the real attempt: a copy of the
-// players is kept for every physics step. When you click, copies from shortly
-// before the click are simulated with your real inputs, the click moved earlier
-// or later, through the player physics and the collision check of the level.
-// A moved click survives when its copy comes back onto the real path (for
-// example lands where you landed) or lives through the lookahead, and dies when
-// the copy dies. A control copy with the click unmoved must follow the real
-// attempt step by step, otherwise the click is not shown. Results appear as soon
-// as they are decided, nothing is reloaded and nothing waits a fixed time.
+// Like "show trajectory", but in step with the real attempt: a copy of the players is kept for every physics
+// step.
 
 PlayerObject* createTrajectoryPlayer(PlayLayer* play) {
     auto& s = Session::get();
@@ -332,9 +317,7 @@ void pressOrRelease(PlayerObject* player, InputEvent const& event) {
     else player->releaseButton(button);
 }
 
-// One physics step of a trajectory copy. `due` are the inputs of this step in
-// order. On-step inputs come first, like inputs processed before the players
-// move; Click Between Frames inputs split the step exactly the way CBF does.
+// One physics step of a trajectory copy.
 void simulateStep(PlayLayer* play, PlayerObject* sim, std::vector<InputEvent> const& due, float dt,
     std::map<EnhancedGameObject*, ActivationFlags>& used) {
     auto& s = Session::get();
@@ -342,8 +325,7 @@ void simulateStep(PlayLayer* play, PlayerObject* sim, std::vector<InputEvent> co
     s.trajSim = sim;
     s.simRunFlags = &used;
 
-    // Orbs and pads the copy knows (used before, or touching it now) get the
-    // copy's flags for the whole step, before any input can activate them.
+    // Orbs and pads the copy knows get the copy's flags for the whole step, before any input can activate them.
     auto sandbox = [&](EnhancedGameObject* object) {
         if (!object || s.simSavedFlags.contains(object)) return;
         s.simSavedFlags[object] = {object->m_activated, object->m_activatedByPlayer1, object->m_activatedByPlayer2};
@@ -457,15 +439,7 @@ bool resetRun(PlayLayer* play, LiveMeasure& m, SimRun& run, InputEvent const& cl
 
 enum class RunState { Pending, Died, Survived, LeftPath };
 
-// Advances one copy up to the newest real step. The control copy (the click
-// unshifted) must stay on the real path; a trial copy is decided when it dies,
-// comes back onto the real path, or lives until the lookahead ends.
-//
-// The copy applies a plan built from your recorded inputs since its start: the
-// measured click moved, its release moved along (move-release-with-press) and,
-// with adaptation, the next click or everything after it moved by the same
-// shift. Inputs are only known once you make them, so a copy whose plan changes
-// before its current step starts again from its saved state.
+// Advances one copy up to the newest real step.
 RunState advanceRun(PlayLayer* play, LiveMeasure& m, SimRun& run, int nowTick, bool control) {
     auto& s = Session::get();
     bool const dual = play->m_gameState.m_isDualMode;
@@ -541,8 +515,7 @@ RunState advanceRun(PlayLayer* play, LiveMeasure& m, SimRun& run, int nowTick, b
         due.clear();
         while (applied < plan.size() && plan[applied].event.tick <= tick) {
             if (plan[applied].neighbour) {
-                // The next input on the same button came before the moved click:
-                // survived up to the neighbouring input, this side does not limit it.
+                // The next input on the same button came before the moved click.
                 return RunState::Survived;
             }
             due.push_back(plan[applied].event);
@@ -648,8 +621,7 @@ void startLiveMeasure(PlayLayer* play, size_t index) {
     if (!m->start) return;
     copyPlayerState(m->start.data(), m->player1 ? snapshot->p1.data() : snapshot->p2.data());
 
-    // The units of this click only: the counted results keep theirs (they are
-    // saved with the run and decide the counter scheme).
+    // The units of this click only: the counted results keep theirs.
     int const savedUnits = s.units;
     int const savedStep = s.stepTicks;
     bool const savedPrecise = s.precise;
@@ -688,8 +660,7 @@ void startLiveMeasure(PlayLayer* play, size_t index) {
 
 } // namespace
 
-// Every command tick while Live Counter records: remember the real state and a
-// copy of the players, start the measurements of new clicks and advance all of them.
+// Every command tick while Live Counter records.
 void liveStep(PlayLayer* play, int tick) {
     auto& s = Session::get();
     if (!liveMode() || !trajectoryLive() || s.stage != Stage::Recording) return;
@@ -776,8 +747,7 @@ void tryStartLive() {
     }
 }
 
-// A failed live simulation: the real attempt is restored by the scheduler hook
-// and Live Counter stays off for the rest of the level.
+// A failed live simulation.
 void abortLive(std::string const& reason) {
     auto& s = Session::get();
     log::error("Live Counter stopped: {}", reason);

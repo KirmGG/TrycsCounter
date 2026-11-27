@@ -1,21 +1,5 @@
 #pragma once
-// Scheduler of the frame-window measurement. It decides which input is shifted
-// by how much in the next trial and consumes the survive/die outcome of every
-// trial. The class does not know anything about Geometry Dash, which keeps it
-// testable without the game.
-//
-// Each side of a window (earlier / later) is found by a linear scan outwards
-// from the original click, one physics frame per trial (1, 2, 3, ... frames),
-// until a trial dies. This is how the other frame window counters measure
-// (exhaustive / outward scans): the window is the contiguous run of passing
-// positions that contains the recorded click, so a passing shift beyond a
-// failing one (a "hole", e.g. a skipped orb) never makes a window too wide.
-// Finer steps (half frames, Click Between Frames) are then bisected only
-// inside the last frame, between the last passing and the first failing frame.
-// A hard click costs one or two trials per side, a 16-frame one about 17.
-//
-// PlannerConfig::gallop restores the old fast search (shift doubling, then
-// bisection), which assumes the window has no holes.
+// Scheduler of the frame-window measurement.
 
 #include "WindowMath.hpp"
 
@@ -32,21 +16,15 @@ struct PlannerInput {
     int tick = 0;
     int button = 0;
     bool player1 = true;
-    // A side that survives all the way to the neighbouring input on the same
-    // button counts as unlimited (see PlannerConfig::relaxNeighbors).
+    // A side that survives all the way to the neighbouring input on the same button counts as unlimited.
     bool relax = false;
-    // A press that takes its release along: the next input on the same button
-    // moves by the same shift (the whole tap moves, the hold keeps its length).
+    // A press that takes its release along: the next input on the same button moves by the same shift.
     bool carriesNext = false;
-    // Survival horizon of this input after the next input, in raw ticks
-    // (measurement units); < 0: PlannerConfig::lookahead. Free-flight modes
-    // (ship, wave, swing) only need to stay alive until the player reacts.
+    // Survival horizon of this input after the next input, in raw ticks; < 0: PlannerConfig::lookahead.
     int lookahead = -1;
 };
 
-// How the recorded run ended. A death or a pause means gameplay after endTick
-// is unknown, so inputs close to it cannot be verified. A completed level is
-// a verified success.
+// How the recorded run ended.
 enum class RunEnd {
     Death,
     Paused,
@@ -68,20 +46,14 @@ struct PlannerConfig {
     bool gallop = false;      // fast search: doubling + bisection (assumes no holes)
     int firstCandidate = 1;   // first shift of the galloping search, in steps
     int unitsPerTick = 1;     // copied into the results (see WindowResult::unitsPerTick)
-    // An input that survives every shift up to its neighbour on the same button
-    // does not matter on that side (fast spam, a release in the air): the side
-    // is treated as unlimited instead of as a tiny window.
+    // An input that survives every shift up to its neighbour on the same button does not matter on that side.
     bool relaxNeighbors = false;
-    // > 0: after a side's edge is found, look this many steps past the first
-    // failing shift for a second window beyond the gap (Deep Count). Found
-    // islands are stored in WindowResult::*Island*.
+    // > 0: after a side's edge is found.
     int islandSteps = 0;
-    // >= 0: the side is already known (units, as WindowResult::earlyTicks /
-    // lateTicks); only the island search runs for it.
+    // >= 0: the side is already known; only the island search runs for it.
     int knownEarly = -1;
     int knownLate = -1;
-    // Not empty: no measurement, only these shifts (units) of onlyIndex are
-    // tried one after another (edge check); see ProbePlanner::fixedOutcomes.
+    // Not empty: no measurement, only these shifts of onlyIndex are tried one after another.
     std::vector<int> fixedShifts;
 };
 
@@ -91,20 +63,7 @@ struct Trial {
     int endTick = 0;   // raw tick at which the trial counts as survived
 };
 
-// Corrections tried when a moved input dies only after the next click: a
-// player who clicked too early or too late fixes it with that next click. The
-// next click (with its release when whole taps move) is re-timed by the
-// returned shift, in measurement units; `index` counts the attempts from 1:
-//   1: the same shift (the player keeps the same rhythm),
-//   2: the opposite shift (the player compensates, typical for ship and UFO),
-//   then whole frames around the recorded timing, nearest first, the
-//   compensating direction before the other one, up to |shift| + 1 frames
-//   (at most maxFrames; `wide`: always maxFrames, for Deep Count).
-// nullopt once every correction was tried.
-//
-// This replaces moving every later input by the same shift: on modes without
-// a fixed landing (ship), that measured how far the whole rest of the run can
-// be delayed, not the click, and made ship windows far too wide or free.
+// Corrections tried when a moved input dies only after the next click.
 inline std::optional<int> correctionShift(int shift, int frameUnits, int index, int maxFrames = 4, bool wide = false) {
     if (index < 1 || shift == 0 || frameUnits <= 0) return std::nullopt;
     std::vector<int> list{shift, -shift};
@@ -295,9 +254,7 @@ private:
         return value > 0 ? value + (step - r) : value - r;
     }
 
-    // Next shift to try on the current side, in steps. Until the first failing
-    // trial the side is scanned outwards (every frame, or doubling with gallop);
-    // afterwards the edge between the last pass and the first failure is bisected.
+    // Next shift to try on the current side, in steps.
     int nextCandidate() const {
         switch (m_island) {
         case Island::Search: return std::min(m_iFail + m_config.coarseSteps, m_iLimit);
@@ -313,9 +270,7 @@ private:
         return m_lo + (m_hi - m_lo) / 2;
     }
 
-    // Furthest allowed early shift (<= 0) and late shift (>= 0) of the current
-    // input: an input never crosses its neighbour on the same button, never
-    // moves before minInputTick and never reaches the end of the run.
+    // Furthest allowed early shift and late shift of the current input.
     void beginEvent() {
         m_unmeasurable = false;
         m_early = true;
@@ -382,10 +337,7 @@ private:
         startSide(true);
     }
 
-    // The early side may use the whole display width. The late side gets what
-    // is left of it, so the two sides together always cover the full width:
-    // a click that dies one frame early but is free late still reaches the
-    // limit and counts as free, instead of a too small window.
+    // The early side may use the whole display width.
     void startSide(bool early) {
         m_early = early;
         m_lo = 0;
@@ -407,9 +359,7 @@ private:
         }
     }
 
-    // Island search of the current side, after its edge: m_hi is the first
-    // failing shift. The side is scanned frame by frame up to islandSteps past
-    // it; a pass starts an island whose start and end are bisected like edges.
+    // Island search of the current side, after its edge: m_hi is the first failing shift.
     bool wantIsland(bool capped) const {
         return m_config.islandSteps > 0 && !capped && m_hi < m_bound && !(m_early ? m_earlyFree : m_lateFree);
     }

@@ -8,14 +8,10 @@ namespace {
 
 constexpr size_t kTraceMaxTicks = 2'000'000;
 
-// The recorded attempt and its replay may differ by float noise (Click Between
-// Frames is reproduced, not reused); a different alignment differs by far more.
+// The recorded attempt and its replay may differ by float noise; a different alignment differs by far more.
 constexpr float kRecordedPathTolerance = 0.01f;
 
-// A trial from a practice checkpoint runs the same replay code as the baseline
-// replay from the level start, so before the moved click it must match it
-// (practically) exactly. Anything more means the checkpoint did not restore
-// the level faithfully and the trial would measure the checkpoint, not the click.
+// A trial from a practice checkpoint runs the same replay code as the baseline replay from the level start.
 constexpr float kCheckpointTolerance = 1e-4f;
 
 constexpr float kCheckpointRotationTolerance = 0.01f;
@@ -122,8 +118,7 @@ void tracePlayer(PlayLayer* play, std::vector<TraceState>& trace, int tick) {
     trace[static_cast<size_t>(tick)] = sampleTrace(play);
 }
 
-// Baseline replay: records its own trace (the reference of all trials) and
-// notes the first raw tick where it leaves the recorded attempt.
+// Baseline replay: records its own trace and notes the first raw tick where it leaves the recorded attempt.
 void traceBaseline(PlayLayer* play, Session& s, int tick) {
     tracePlayer(play, s.baselineTrace, tick);
     if (s.baselineDivergeTick >= 0 || s.lastInjectedTick < 0) return;
@@ -140,12 +135,7 @@ void traceBaseline(PlayLayer* play, Session& s, int tick) {
     }
 }
 
-// Ship, wave and swing: the player steers all the time, so a moved click only
-// has to keep them alive until the next click and a moment to react; what
-// happens after that is decided by how the player goes on, not by the click.
-// Measured against the full lookahead, a ship click shows the precision of the
-// player's own pattern of clicks instead of the precision of the place.
-// The mode is read from the baseline replay at the click.
+// Ship, wave and swing.
 std::vector<char> freeFlightInputs(Session const& s) {
     auto const& events = s.source.events;
     std::vector<char> result(events.size(), 0);

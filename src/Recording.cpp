@@ -4,9 +4,7 @@
 
 namespace tc {
 
-// Records an input only when it changes the held state of its button. Stale and
-// duplicate callbacks that GD emits during resets therefore never reach the
-// recording, while real clicks are kept from the very first tick.
+// Records an input only when it changes the held state of its button.
 void recordInput(GJBaseGameLayer* layer, bool down, int button, bool player1) {
     auto& s = Session::get();
     if (!layer->m_player1 || layer->m_player1->m_isDead || layer->m_levelEndAnimationStarted) return;
@@ -15,14 +13,12 @@ void recordInput(GJBaseGameLayer* layer, bool down, int button, bool player1) {
     if (held == down) return;
     held = down;
 
-    auto const point = playerPoint(layer, player1);
     int const tick = currentTick(layer);
-    InputEvent event{tick, down, button, player1, point.x, point.y, layer->m_isBetweenSteps};
+    InputEvent event{tick, down, button, player1, 0.f, 0.f, layer->m_isBetweenSteps};
+    placeEvent(layer, event);
     if (cbfSplitsSteps()) {
         rollCbfStep(s, tick);
-        // Only an input that arrives after part of the step was simulated is a
-        // between-steps input. Inputs at the start of a step (bots, CBF while the
-        // player is airborne) are ordinary on-step inputs.
+        // Only an input that arrives after part of the step was simulated is a between-steps input.
         float const done = std::max(s.cbfAcc1, s.cbfAcc2);
         if (done > 0.f) {
             event.cbf = true;
@@ -55,8 +51,7 @@ RunRecord recordedRun(PlayLayer* play, int endTick, RunEnd kind) {
     return run;
 }
 
-// The run an analysis should start from: the attempt in progress, otherwise the
-// last completion, otherwise the last attempt that ended in a death.
+// The run an analysis should start from.
 RunRecord selectRun(PlayLayer* play) {
     auto& s = Session::get();
     noteStepDt(s);

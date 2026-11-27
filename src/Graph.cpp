@@ -212,7 +212,7 @@ protected:
                 draw->drawSegment(previous, at, 0.9f, {0.45f, 0.85f, 1.f, 1.f});
                 previous = at;
             } else {
-                auto const color = overlay::kBucketColors[bucketOf(point.frames)];
+                auto const color = overlay::windowColor(point.frames, m_data.hudPrecise);
                 draw->drawSegment({at.x, kBottom}, at, 0.5f, color4(color, 0.25f));
                 draw->drawDot(at, 1.8f, color4(color));
             }
@@ -239,18 +239,19 @@ protected:
 
     // How many clicks fall into each counter bucket.
     void drawSpread() {
+        size_t const buckets = bucketCount(m_data.hudPrecise);
         std::array<int, kBucketCount> counts{};
         for (auto const& point : m_data.points) ++counts[bucketOf(point.frames)];
         int const most = *std::max_element(counts.begin(), counts.end());
-        m_maxX = static_cast<double>(kBucketCount);
+        m_maxX = static_cast<double>(buckets);
         m_maxY = std::max(1, most);
 
         auto* draw = CCDrawNode::create();
         m_plot->addChild(draw);
         draw->drawSegment({kLeft, kBottom}, {kRight, kBottom}, 0.6f, {1.f, 1.f, 1.f, 0.5f});
-        float const slot = (kRight - kLeft) / static_cast<float>(kBucketCount);
-        for (size_t i = 0; i < kBucketCount; ++i) {
-            auto const color = overlay::kBucketColors[i];
+        float const slot = (kRight - kLeft) / static_cast<float>(buckets);
+        for (size_t i = 0; i < buckets; ++i) {
+            auto const color = overlay::bucketColor(i, m_data.hudPrecise);
             float const x0 = kLeft + slot * static_cast<float>(i) + 4.f;
             float const x1 = x0 + slot - 8.f;
             float const top = toPlot(0.0, counts[i]).y;

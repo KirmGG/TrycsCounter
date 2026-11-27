@@ -1,6 +1,5 @@
 #pragma once
-// Pure math helpers for frame windows. No Geometry Dash / Geode types here,
-// so everything in this file is unit-testable on any platform.
+// Pure math helpers for frame windows.
 
 #include <algorithm>
 #include <array>
@@ -15,21 +14,16 @@ namespace tc {
 struct WindowResult {
     int earlyTicks = 0;
     int lateTicks = 0;
-    // Smallest shift the measurement could make, in raw ticks: 2 = one physics
-    // frame, 1 = half a frame (vanilla Click Between Steps).
+    // Smallest shift the measurement could make, in raw ticks: 2 = one physics frame, 1 = half a frame.
     int stepTicks = 2;
     // Measurement units per raw tick: 1 normally, finer for Click Between Frames.
-    // earlyTicks, lateTicks and stepTicks are in these units.
     int unitsPerTick = 1;
     bool earlyCapped = false;
     bool lateCapped = false;
     bool valid = false;
-    // The window is wider than the display limit. Such a click is considered
-    // free: it is neither labelled, nor counted, nor does it play a sound.
+    // The window is wider than the display limit.
     bool exceeded = false;
-    // A second window of the click beyond a gap (PlannerConfig::islandSteps):
-    // shifts (units, counted away from the click) of its first and last passing
-    // position on the early / late side; 0 when there is none.
+    // A second window of the click beyond a gap.
     int earlyIslandFrom = 0;
     int earlyIslandTo = 0;
     int lateIslandFrom = 0;
@@ -84,11 +78,12 @@ inline double shownFrames(double frames, bool precise) {
     return std::max(1.0, std::ceil(frames - 1e-9));
 }
 
-// HUD buckets, NaN GD style (the counter lists them from the widest to the
-// hardest). Precise mode (fractions of a frame, CBF / CBS):
-//   0-1, 1-2, 2-3, 3-4, 4-5, 5-6, 6-8, <10 (8 up to 10), <=max (10 up to max).
-// Whole frames: 1, 2, 3, 4, 5, 6, 7-8, 9-10, 11-max.
+// HUD buckets, NaN GD style (the counter lists them from the widest to the hardest).
 inline constexpr size_t kBucketCount = 9;
+
+inline size_t bucketCount(bool precise) {
+    return precise ? 9 : 7;
+}
 
 inline int bucketIndex(double frames, bool precise) {
     if (precise) {
@@ -99,19 +94,18 @@ inline int bucketIndex(double frames, bool precise) {
         return 8;
     }
     int const whole = static_cast<int>(std::lround(frames));
-    if (whole <= 6) return std::max(whole, 1) - 1;
-    if (whole <= 8) return 6;
-    if (whole <= 10) return 7;
-    return 8;
+    if (whole <= 4) return std::max(whole, 1) - 1;
+    if (whole <= 6) return 4;
+    if (whole <= 8) return 5;
+    return 6;
 }
 
-// "<=" at the start of a label is drawn as the single sign "≤" by the HUD
-// (the game fonts have no such glyph).
+// "<=" at the start of a label is drawn as the single sign "≤" by the HUD.
 inline std::array<std::string, kBucketCount> bucketLabels(int maxFrames, bool precise) {
     maxFrames = std::max(11, maxFrames);
     if (precise)
         return {"0-1", "1-2", "2-3", "3-4", "4-5", "5-6", "6-8", "<10", "<=" + std::to_string(maxFrames)};
-    return {"1", "2", "3", "4", "5", "6", "7-8", "9-10", "11-" + std::to_string(maxFrames)};
+    return {"1", "2", "3", "4", "5-6", "7-8", "<=" + std::to_string(maxFrames), "", ""};
 }
 
 // Smallest and largest window (frames) of a bucket, for the legend.
@@ -123,14 +117,13 @@ inline std::pair<double, double> bucketBounds(size_t index, bool precise, int ma
         index = std::min<size_t>(index, 8);
         return {kLo[index], index == 8 ? static_cast<double>(maxFrames) : kHi[index]};
     }
-    static constexpr double kLo[] = {1, 2, 3, 4, 5, 6, 7, 9, 11};
-    static constexpr double kHi[] = {1, 2, 3, 4, 5, 6, 8, 10, 0};
-    index = std::min<size_t>(index, 8);
-    return {kLo[index], index == 8 ? static_cast<double>(maxFrames) : kHi[index]};
+    static constexpr double kLo[] = {1, 2, 3, 4, 5, 7, 9};
+    static constexpr double kHi[] = {1, 2, 3, 4, 6, 8, 0};
+    index = std::min<size_t>(index, 6);
+    return {kLo[index], index == 6 ? static_cast<double>(maxFrames) : kHi[index]};
 }
 
-// "5" for a whole-frame window, "2.50" / "1.48" for a precise one (always two
-// decimals, like NaN GD's CBF counters), with "+" when a side hit a limit.
+// "5" for a whole-frame window, "2.50" / "1.48" for a precise one, with "+" when a side hit a limit.
 inline std::string frameLabel(double frames, bool precise, bool capped) {
     std::string text;
     if (precise) {
@@ -143,10 +136,7 @@ inline std::string frameLabel(double frames, bool precise, bool capped) {
     return text + (capped ? "+" : "");
 }
 
-// A precise window with `decimals` digits (0-2), cut rather than rounded so
-// that the text never shows a wider window than the one counted ("7.96" with
-// one digit is "7.9"). Whole numbers lose their zeros ("8.0" is "8"). "+" when
-// a side hit a limit.
+// A precise window with `decimals` digits.
 inline std::string frameLabelDecimals(double frames, int decimals, bool capped) {
     decimals = std::clamp(decimals, 0, 2);
     double const scale = decimals == 0 ? 1.0 : decimals == 1 ? 10.0 : 100.0;
@@ -163,15 +153,13 @@ inline int windowDecimals(double frames, double below, int hard, int easy) {
     return frames < below - 1e-9 ? hard : easy;
 }
 
-// One window of a click measured with the previous click at some timing, and
-// how likely the player is to make that timing.
+// One window of a click measured with the previous click at some timing.
 struct WeightedWindow {
     double frames = 0.0;
     double weight = 1.0;
 };
 
-// How likely a player hits `shift` inside a window [-early, late] (any units):
-// players aim at the middle, so the middle counts most, the edges least.
+// How likely a player hits `shift` inside a window [-early, late].
 inline double timingWeight(double shift, double early, double late) {
     double const half = (early + late) / 2.0;
     if (half <= 0.0) return 1.0;
@@ -179,9 +167,7 @@ inline double timingWeight(double shift, double early, double late) {
     return std::exp(-2.0 * off * off);
 }
 
-// The window the click usually has: the value with the most weight within
-// `tolerance` of it (ties: the one closest to `prefer`), averaged over that
-// group. Not the middle of the range: "almost always 2, can also be 1.5".
+// The window the click usually has.
 inline double typicalWindow(std::vector<WeightedWindow> const& samples, double tolerance, double prefer) {
     if (samples.empty()) return prefer;
     double bestScore = -1.0;
@@ -208,16 +194,14 @@ inline double typicalWindow(std::vector<WeightedWindow> const& samples, double t
     return weight > 0.0 ? sum / weight : best;
 }
 
-// One connected piece of a window on the shift axis, in frames: positions of
-// its first and last passing test (each test covers one step).
+// One connected piece of a window on the shift axis, in frames.
 struct WindowSpan {
     double from = 0.0;
     double to = 0.0;
     double width(double step) const { return to - from + step; }
 };
 
-// The pieces of a window, earliest first: the early island, the window around
-// the click, the late island. `framesPerUnit` converts measurement units.
+// The pieces of a window, earliest first.
 inline std::vector<WindowSpan> windowSpans(WindowResult const& r, double framesPerUnit) {
     std::vector<WindowSpan> spans;
     double const f = framesPerUnit;
@@ -227,8 +211,7 @@ inline std::vector<WindowSpan> windowSpans(WindowResult const& r, double framesP
     return spans;
 }
 
-// "(0.01, 1.85) U (2.09, 2.44) w/ 0.01": the pieces from the earliest passing
-// test (each position written as where its step ends), like NaN GD's notes.
+// " U w/ 0.01": the pieces from the earliest passing test, like NaN GD's notes.
 inline std::string spansLabel(std::vector<WindowSpan> const& spans, double step, bool precise) {
     if (spans.empty()) return {};
     double const origin = spans.front().from;
@@ -242,17 +225,7 @@ inline std::string spansLabel(std::vector<WindowSpan> const& spans, double step,
     return text;
 }
 
-// Marks written after the window of a click:
-//   ~    depends on the previous click; after Deep Count the number is the
-//        window the click has most often
-//   !    swift click: pressed right after the previous press of the same button
-//   !!   double swift (third press of a swift chain), !!! triple swift and more
-//   -    disconnected: the click also works beyond a gap (Deep Count); the
-//        number is the piece around the click
-//   ^    an easier approach exists: with earlier inputs timed differently the
-//        click is clearly wider (Deep Count)
-//   ?    the counting replay had already left the recorded attempt, or the
-//        edge check got another outcome on a re-check: may be off
+// Marks written after the window of a click.
 inline std::string clickMarks(bool dependent, int swiftLevel, bool uncertain = false, bool disconnected = false,
     bool easier = false) {
     std::string text;
@@ -271,9 +244,7 @@ struct SwiftInput {
     int key = 0;      // button and player together
 };
 
-// Swift level of every input: 0 for a normal click, 1 for a press that follows
-// the previous press of the same key within `maxGap` units, 2 for the next
-// press of such a chain, and so on. Releases are always 0.
+// Swift level of every input.
 inline std::vector<int> swiftLevels(std::vector<SwiftInput> const& inputs, int maxGap) {
     std::vector<int> levels(inputs.size(), 0);
     if (maxGap <= 0) return levels;
@@ -292,8 +263,7 @@ inline std::vector<int> swiftLevels(std::vector<SwiftInput> const& inputs, int m
     return levels;
 }
 
-// Time available for the click, in milliseconds, for a window of `frames`
-// display frames at `fps` frames per second.
+// Time available for the click, in milliseconds.
 inline double windowMs(double frames, int fps) {
     if (frames <= 0.0 || fps <= 0) return 0.0;
     return frames * 1000.0 / static_cast<double>(fps);
@@ -305,8 +275,7 @@ inline std::string formatMs(double ms, bool capped) {
     return buffer;
 }
 
-// HUD lines of a window: "6.17MS" and "162Hz" (the rate a click of that
-// window corresponds to: one window per period).
+// HUD lines of a window: "6.17MS" and "162Hz".
 inline std::string hudMs(double ms) {
     char buffer[32];
     std::snprintf(buffer, sizeof(buffer), "%.2fMS", ms);
@@ -320,9 +289,7 @@ inline std::string hudHz(double ms) {
     return buffer;
 }
 
-// Playback-speed factor for the ding. A window of `baseFrames` (8) plays the
-// sound as it is; every frame less lowers the pitch by `semitonesPerFrame`,
-// every frame more raises it. Hard clicks sound low, free ones high.
+// Playback-speed factor for the ding.
 inline double dingPitch(double frames, double semitonesPerFrame, double baseFrames = 8.0) {
     double const steps = std::max(frames, 1.0) - baseFrames;
     double const factor = std::exp2(steps * semitonesPerFrame / 12.0);

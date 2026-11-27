@@ -1,7 +1,5 @@
 #pragma once
-// Bot macros in the GDR format (xdBot and other bots): the binary form
-// (MessagePack, .gdr) is read here; the JSON form (.gdr.json) is read by the
-// mod with matjson and goes through the same macroFromNode.
+// Bot macros in the GDR format.
 
 #include <algorithm>
 #include <cstdint>
@@ -201,8 +199,7 @@ inline std::optional<Node> decodeMsgpack(std::vector<uint8_t> const& bytes) {
     return detail::Reader(bytes.data(), bytes.size()).value();
 }
 
-// One input of a macro: a press or release of `button` (1 jump, 2 left,
-// 3 right) on physics frame `frame`.
+// One input of a macro: a press or release of `button` on physics frame `frame`.
 struct Input {
     int frame = 0;
     int button = 1;
@@ -278,10 +275,7 @@ inline std::pair<std::optional<Macro>, std::string> macroFromNode(Node const& ro
     return {std::move(macro), {}};
 }
 
-// GDR2 (.gdr2, Eclipse): "GDR", varint version, then metadata and the inputs
-// of player 1 followed by those of player 2, each a varint with the frame as a
-// delta from the previous input of the same player. Integers are unsigned
-// LEB128 varints, strings a varint length and bytes, floats big-endian.
+// GDR2: "GDR", varint version, then metadata and the inputs of player 1 followed by those of player 2.
 inline std::pair<std::optional<Macro>, std::string> readGdr2(std::vector<uint8_t> const& bytes) {
     size_t pos = 0;
     bool ok = true;
@@ -329,8 +323,7 @@ inline std::pair<std::optional<Macro>, std::string> readGdr2(std::vector<uint8_t
     varint();                       // game version
     uint64_t const rate = bigEndian(8);
     std::memcpy(&macro.framerate, &rate, sizeof rate);
-    // Some Eclipse versions wrote the display FPS here (59) while the frames
-    // count physics steps at 240.
+    // Some Eclipse versions wrote the display FPS here while the frames count physics steps at 240.
     if (!(macro.framerate >= 120.0)) macro.framerate = 240.0;
     varint();                       // seed
     varint();                       // coins

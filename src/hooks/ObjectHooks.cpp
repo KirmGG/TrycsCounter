@@ -8,8 +8,7 @@
 
 using namespace tc;
 
-// Ours runs innermost, so while recording it sees every sub-step CBF makes, and
-// while replaying CBF passes the whole step through to it.
+// Ours runs innermost, so while recording it sees every sub-step CBF makes.
 
 class $modify(TCPlayer, PlayerObject) {
     static void onModify(auto& self) {
@@ -58,8 +57,8 @@ class $modify(TCPlayer, PlayerObject) {
         PlayerObject::incrementJumps();
     }
 
-    // After a split step the game rotates the player by the last sub-step only and
-    // keeps the position from before the step (what CBF does for move triggers).
+    // After a split step the game rotates the player by the last sub-step only and keeps the position from
+    // before the step.
     void updateRotation(float dt) {
         auto& s = Session::get();
         auto* play = PlayLayer::get();
@@ -86,8 +85,7 @@ class $modify(TCHardStreak, HardStreak) {
     }
 };
 
-// Display settings changed in the middle of a level: the counter and the
-// markers are built again (the clicks already passed are counted silently).
+// Display settings changed in the middle of a level: the counter and the markers are built again.
 $on_mod(Loaded) {
     auto redraw = [] {
         Loader::get()->queueInMainThread([] {

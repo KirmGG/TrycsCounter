@@ -1,4 +1,4 @@
-// Replay corrections ("frame fixes"): small state fixes that keep the replay on the recorded path.
+// Replay corrections: small state fixes that keep the replay on the recorded path.
 
 #include "App.hpp"
 
@@ -6,15 +6,7 @@ namespace tc {
 
 namespace {
 
-// Practice checkpoints restore the player a little differently than a continuous
-// run gets there, and xdBot's Frame Fixes set the player's position directly.
-// A replay from the inputs alone then drifts away from the attempt. The baseline
-// replay therefore puts the player back onto the recorded path whenever it is a
-// little off (same mode, gravity, size and held buttons, at most a few units
-// away) and remembers each correction. Trials, the Live replay and the replay of
-// the counted run apply the same corrections: unchanged where the player is
-// exactly where the baseline was before its correction, as an offset elsewhere
-// (a moved click is not on the recorded path, the drift still happens).
+// Practice checkpoints restore the player a little differently than a continuous run gets there.
 
 // Smaller corrections never count as the replay going elsewhere.
 constexpr float kFixTiny = 0.05f;
@@ -35,7 +27,6 @@ void setPlayerState(PlayerObject* player, float x, float y, double vy) {
 }
 
 // A correction is real (not a rounding difference) and counts towards giving up.
-// False once the replay has needed too many in a row: it went elsewhere.
 bool noteCorrection(Session& s, int tick, float dx, float dy, double dvy) {
     bool const tiny = dx <= kFixTiny && dy <= kFixTiny && dvy <= kFixTiny;
     if (!tiny) {
@@ -51,9 +42,7 @@ bool noteCorrection(Session& s, int tick, float dx, float dy, double dvy) {
     return true;
 }
 
-// A bot macro's Frame Fixes: the players are put where the bot had them, like
-// the bot does when it plays the macro. Only small differences: a large one is
-// a desync, not a drift.
+// A bot macro's Frame Fixes.
 void fixPositions(PlayLayer* play, Session& s, int tick, TraceState const& want, bool dual) {
     for (int p = 0; p < (want.dual && dual ? 2 : 1); ++p) {
         auto* player = p == 0 ? play->m_player1 : play->m_player2;
@@ -126,8 +115,7 @@ void applyStateFixes(PlayLayer* play, Session& s, int tick) {
     else if (s.stage == Stage::Probing || s.stage == Stage::Replay) applyRecordedFixes(play, s, tick);
 }
 
-// Practice recording: right after a respawn the game may have released (or kept)
-// the buttons without an input. The recording follows what the game holds now.
+// Practice recording: right after a respawn the game may have released the buttons without an input.
 void syncHeldButtons(PlayLayer* play, Session& s, int tick) {
     if (!s.syncHeldAfterRespawn) return;
     s.syncHeldAfterRespawn = false;
@@ -147,8 +135,7 @@ void syncHeldButtons(PlayLayer* play, Session& s, int tick) {
     }
 }
 
-// The practice checkpoint of the current trial did not reproduce the baseline
-// before the moved click: the trial is run again from an earlier one.
+// The practice checkpoint of the current trial did not reproduce the baseline before the moved click.
 void rejectCheckpoint(Session& s, int tick, char const* what) {
     if (s.skipVisuals && ++s.skipVisualsRejections >= 3) {
         // Skipping the drawing work might change this level: count it fully.
@@ -169,9 +156,7 @@ void rejectCheckpoint(Session& s, int tick, char const* what) {
     s.pendingReset = Session::PendingReset::Level;
 }
 
-// Before the moved click a trial must be identical to the baseline replay (the
-// same replay from the level start). Without a baseline trace the recorded
-// attempt is the reference, with the looser tolerance.
+// Before the moved click a trial must be identical to the baseline replay.
 void verifyTrialPrefix(PlayLayer* play, Session& s, int tick) {
     if (s.checkpoints.empty() || s.pendingReset != Session::PendingReset::None || s.lastInjectedTick < 0) return;
     if (tick > s.trialVerifyUntil || tick < s.checkpoints.back().tick) return;
@@ -186,16 +171,13 @@ void verifyTrialPrefix(PlayLayer* play, Session& s, int tick) {
     }
 }
 
-// After every moved input: a trial whose players are bit for bit in the
-// baseline state (and stay there) continues exactly like the baseline replay,
-// which reached the end of the run. It survives, no need to wait for the lookahead.
+// After every moved input.
 void checkConvergence(PlayLayer* play, Session& s, int tick) {
     if (s.verifyingCheckpoint) return;
     if (s.pendingOutcome != ProbeOutcome::None || s.pendingReset != Session::PendingReset::None || s.lastInjectedTick < 0) return;
     if (tick <= s.trialConvergeAfter) return;
     auto const* want = traceAt(s.baselineTrace, tick);
-    // Bit for bit, or (setting "Back on path") within a small distance: the
-    // player has fixed the mistake and goes on like the attempt.
+    // Bit for bit, or within a small distance.
     auto const check = pathTolerance() > 0.f ? TraceCheck::Near : TraceCheck::Exact;
     if (!want || !sameTrace(sampleTrace(play), *want, check)) {
         s.trialConvergedSince = -1;

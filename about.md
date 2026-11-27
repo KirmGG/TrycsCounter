@@ -25,6 +25,8 @@ For even more accurate results, run <cg>Deep Count</cg> after the normal count. 
 - Graph of the run and click training: practise any hard click from a checkpoint
 - Saved runs, and a library in the main menu with every level you counted
 - Show frame windows right in the editor
+- Hitborders after Deep Count: where you can be around every click <cr>(experimental)</c>
+- 2 player mode and duals
 - Live Counter <cr>(experimental)</cr>
 
 ## Symbols after a window
@@ -47,6 +49,8 @@ For even more accurate results, run <cg>Deep Count</cg> after the normal count. 
 **Survival.** A moved click is fine if you survive until the next click and a bit more. If you die only after the next click, the mod tries to fix it with the next clicks, like a real player would. In ship, wave and swing you only need to survive until the next click, because you steer all the time there.
 
 **<cg>Deep Count</cg>.** Checks every window edge again strictly, measures each click with the previous click timed differently, looks a few frames past the edges for a second window, and searches for an easier approach on hard clicks.
+
+**Hitborders** <cr>(experimental)</c>. Every click is replayed at the early and the late edge of its window. Then the run is replayed in layout mode: the orange band between those two paths is where you can be, a white trail follows you, and the counter shows only its coloured numbers.
 
 **Speed.** While counting, the game runs much faster than normal (how fast depends on your CPU), the level is hidden and decoration is turned off. Everything is back to normal after.
 

@@ -1,5 +1,5 @@
-// The editor: "Show frame windows" in its pause menu puts the markers of the
-// level's counted run (the one the level shows when played) over the objects.
+// The editor: "Show frame windows" in its pause menu puts the markers of the level's counted run over the
+// objects.
 
 #include "../App.hpp"
 #include <Geode/modify/EditorPauseLayer.hpp>
@@ -30,9 +30,7 @@ std::optional<saved::SavedRunInfo> newestRun(std::string const& key) {
     return std::nullopt;
 }
 
-// The run to show for an editor level. Its key hashes the level data, so after
-// an edit it no longer matches: then the newest run of a local level with the
-// same name.
+// The run to show for an editor level.
 std::optional<saved::SavedRunInfo> editorRun(GJGameLevel* level) {
     if (!level) return std::nullopt;
     if (auto run = newestRun(saved::levelKeyOf(level))) return run;
@@ -84,7 +82,7 @@ void refreshEditorMarkers(LevelEditorLayer* editor, bool announce) {
         double const frames = shownWindow(run, i);
         bool const ranged = i < run.deep.size() && run.deep[i].ranged();
         bool const capped = result.capped() && !ranged;
-        overlay::showMarkerText(container, event, frames, capped,
+        overlay::showMarkerText(container, markerEvent(run, i), frames, capped,
             cfg::windowLabel(frames, cfg::isPrecise(result), capped) + resultMarks(run, i));
     }
     s.markerBoxes.clear();
@@ -111,8 +109,7 @@ class $modify(TCEditorPauseLayer, EditorPauseLayer) {
         return true;
     }
 
-    // The last row of GD's column of options. The column already reaches the
-    // bottom of the screen, so its rows move closer together to make room.
+    // The last row of GD's column of options.
     void addFrameWindowsOption() {
         auto* menu = this->getChildByIDRecursive("options-menu");
         if (!menu) return;
