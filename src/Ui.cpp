@@ -703,17 +703,7 @@ protected:
         createQuickPopup("Clear results", "Remove the counted run from this level? Saved runs stay on disk.", "Cancel",
             "Clear", [self](FLAlertLayer*, bool clear) {
                 if (!clear) return;
-                auto& s = Session::get();
-                s.hasResults = false;
-                s.windows.clear();
-                s.dependent.clear();
-                s.edgeUncertain.clear();
-                s.deep.clear();
-                s.resultsKey.clear();
-                s.resultsName.clear();
-                ++s.lstarGeneration;
-                s.lstarReady = false;
-                refreshDisplay(PlayLayer::get());
+                clearResults(PlayLayer::get());
                 self->refreshLater();
             });
     }

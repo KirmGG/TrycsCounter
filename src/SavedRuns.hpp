@@ -462,6 +462,11 @@ inline geode::Result<> saveLastCount(std::string const& key, SavedRun data) {
 }
 
 // Time the last count was made, 0 when there is none.
+inline void removeLastCount(std::string const& key) {
+    std::error_code ec;
+    std::filesystem::remove(lastCountPath(key), ec);
+}
+
 inline int64_t lastCountTime(std::string const& key) {
     auto text = geode::utils::file::readString(lastCountPath(key));
     if (text.isErr()) return 0;

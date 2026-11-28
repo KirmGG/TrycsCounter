@@ -67,6 +67,7 @@ bool saveCurrentRun(PlayLayer* play, std::string const& name) {
         return false;
     }
     log::info("Saved the counted run to {}", utils::string::pathToString(result.unwrap()));
+    saved::removeLastCount(s.levelKey);
     s.resultsSaved = true;
     s.resultsName = name;
     Notification::create("Run saved for this level", NotificationIcon::Success)->show();
@@ -79,6 +80,23 @@ void saveLastCount(PlayLayer* play) {
     if (!resultsForLevel(play)) return;
     if (auto result = saved::saveLastCount(s.levelKey, currentRunData(play, s.resultsName)); result.isErr())
         log::error("Could not keep the last count: {}", result.unwrapErr());
+}
+
+// Forgets the counted run of the level; saved runs stay.
+void clearResults(PlayLayer* play) {
+    auto& s = Session::get();
+    if (!s.resultsSaved) saved::removeLastCount(s.levelKey);
+    s.hasResults = false;
+    s.windows.clear();
+    s.dependent.clear();
+    s.edgeUncertain.clear();
+    s.deep.clear();
+    s.borders = {};
+    s.resultsKey.clear();
+    s.resultsName.clear();
+    ++s.lstarGeneration;
+    s.lstarReady = false;
+    refreshDisplay(play);
 }
 
 // The results shown when a level opens.

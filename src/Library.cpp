@@ -394,6 +394,7 @@ protected:
             rowButton(menu, "Stats", "GJ_button_02.png", this, menu_selector(SavedRunsPopup::onStats), kLastCountTag);
             rowButton(menu, "Play", "GJ_button_01.png", this, menu_selector(SavedRunsPopup::onPlay), kLastCountTag);
             rowButton(menu, "Save", "GJ_button_05.png", this, menu_selector(SavedRunsPopup::onKeep), kLastCountTag);
+            rowButton(menu, "X", "GJ_button_06.png", this, menu_selector(SavedRunsPopup::onDelete), kLastCountTag);
             menu->updateLayout();
         }
         for (size_t i = 0; i < m_runs.size(); ++i) {
@@ -467,6 +468,12 @@ protected:
                 Notification::create("Could not save the run: " + saved.unwrapErr(), NotificationIcon::Error)->show();
                 return;
             }
+            saved::removeLastCount(key);
+            auto& s = Session::get();
+            if (s.resultsKey == key && !s.resultsSaved) {
+                s.resultsSaved = true;
+                s.resultsName = name;
+            }
             Notification::create("Run saved", NotificationIcon::Success)->show();
             self->changed();
         });
@@ -494,10 +501,18 @@ protected:
         auto const* run = runOf(sender);
         if (!run) return;
         auto const path = run->path;
+        bool const last = static_cast<CCNode*>(sender)->getTag() == kLastCountTag;
         Ref<SavedRunsPopup> self = this;
-        createQuickPopup("Delete run", fmt::format("Delete <cy>{}</c>? This cannot be undone.", saved::titleOf(*run)),
-            "Cancel", "Delete", [self, path](FLAlertLayer*, bool remove) {
+        createQuickPopup("Delete run", fmt::format("Delete <cy>{}</c>? This cannot be undone.", titleOf(sender)),
+            "Cancel", "Delete", [self, path, last](FLAlertLayer*, bool remove) {
                 if (!remove) return;
+                // The last count on screen goes with its file.
+                auto& s = Session::get();
+                if (last && self->inLevel() && s.resultsKey == self->m_key && !s.resultsSaved) {
+                    clearResults(PlayLayer::get());
+                    self->changed();
+                    return;
+                }
                 std::error_code ec;
                 std::filesystem::remove(path, ec);
                 if (ec) {

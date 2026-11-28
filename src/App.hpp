@@ -174,6 +174,7 @@ bool saveCurrentRun(PlayLayer* play, std::string const& name = {});
 bool loadSavedRun(PlayLayer* play, std::filesystem::path const& path, bool quiet = false);
 size_t savedRunCount(std::string const& key);
 void saveLastCount(PlayLayer* play);
+void clearResults(PlayLayer* play);
 void loadLevelResults(PlayLayer* play);
 
 // Macros.cpp
